@@ -1,0 +1,396 @@
+version 1.2.6
+wormwood;wormwood:if_eth0.graph_title eth0 traffic
+wormwood;wormwood:if_eth0.up.info Traffic of the eth0 interface. Maximum speed is undeterminable (please install ethtool).
+wormwood;wormwood:if_eth0.up.cdef up,8,*
+wormwood;wormwood:if_eth0.up.label bps
+wormwood;wormwood:if_eth0.graph_args --base 1000
+wormwood;wormwood:if_eth0.graph_category network
+wormwood;wormwood:if_eth0.graph_order down up
+wormwood;wormwood:if_eth0.down.cdef down,8,*
+wormwood;wormwood:if_eth0.down.label received
+wormwood;wormwood:if_eth0.down.type COUNTER
+wormwood;wormwood:if_eth0.graph_vlabel bits in (-) / out (+) per ${graph_period}
+wormwood;wormwood:if_eth0.graph_info This graph shows the traffic of the eth0 network interface. Please note that the traffic is shown in bits per second, not bytes. IMPORTANT: Since the data source for this plugin use 32bit counters, this plugin is really unreliable and unsuitable for most 100Mb (or faster) interfaces, where bursts are expected to exceed 50Mbps. This means that this plugin is usuitable for most production environments. To avoid this problem, use the ip_ plugin instead.
+wormwood;wormwood:if_eth0.up.type COUNTER
+wormwood;wormwood:if_eth0.up.negative down
+wormwood;wormwood:if_eth0.down.graph no
+wormwood;wormwood:apache_accesses.graph_title Apache accesses
+wormwood;wormwood:apache_accesses.accesses80.type DERIVE
+wormwood;wormwood:apache_accesses.graph_args --base 1000
+wormwood;wormwood:apache_accesses.graph_category apache
+wormwood;wormwood:apache_accesses.graph_order accesses80
+wormwood;wormwood:apache_accesses.accesses80.label port 80
+wormwood;wormwood:apache_accesses.accesses80.min 0
+wormwood;wormwood:apache_accesses.graph_vlabel accesses / \${graph_period}
+wormwood;wormwood:apache_accesses.accesses80.max 1000000
+wormwood;wormwood:df.graph_title Disk usage (in percent)
+wormwood;wormwood:df.udev.warning 92
+wormwood;wormwood:df._dev_sda1.warning 92
+wormwood;wormwood:df._dev_md0.warning 92
+wormwood;wormwood:df.graph_category disk
+wormwood;wormwood:df._dev_md0.label /
+wormwood;wormwood:df._dev_md0.critical 98
+wormwood;wormwood:df._dev_sda1.label /boot
+wormwood;wormwood:df._dev_sda1.critical 98
+wormwood;wormwood:df.tmpfs.critical 98
+wormwood;wormwood:df.graph_scale no
+wormwood;wormwood:df.graph_args --upper-limit 100 -l 0
+wormwood;wormwood:df.graph_order _dev_md0 tmpfs udev _dev_sda1
+wormwood;wormwood:df.tmpfs.warning 92
+wormwood;wormwood:df.graph_vlabel %
+wormwood;wormwood:df.udev.critical 98
+wormwood;wormwood:df.tmpfs.label /dev/shm
+wormwood;wormwood:df.udev.label /dev
+wormwood;wormwood:obama.graph_title Obama promises
+wormwood;wormwood:obama.compromise.label Compromise
+wormwood;wormwood:obama.compromise.draw STACK
+wormwood;wormwood:obama.graph_category politics
+wormwood;wormwood:obama.intheworks.info Number of promises in the works
+wormwood;wormwood:obama.noaction.info Number of promises with no actions taken
+wormwood;wormwood:obama.graph_height 250
+wormwood;wormwood:obama.broken.draw STACK
+wormwood;wormwood:obama.kept.draw AREA
+wormwood;wormwood:obama.kept.label Kept
+wormwood;wormwood:obama.compromise.info Number of compromises
+wormwood;wormwood:obama.stalled.info Number of promises stalled
+wormwood;wormwood:obama.stalled.label Stalled
+wormwood;wormwood:obama.graph_args --base 1000 -l 0
+wormwood;wormwood:obama.intheworks.draw STACK
+wormwood;wormwood:obama.graph_order kept compromise broken stalled intheworks noaction
+wormwood;wormwood:obama.noaction.label No action
+wormwood;wormwood:obama.kept.info Number of promises kept
+wormwood;wormwood:obama.broken.label Broken
+wormwood;wormwood:obama.broken.info Number of promises broken
+wormwood;wormwood:obama.noaction.draw STACK
+wormwood;wormwood:obama.stalled.draw STACK
+wormwood;wormwood:obama.intheworks.label In the works
+wormwood;wormwood:load.graph_title Load average
+wormwood;wormwood:load.load.warning 10
+wormwood;wormwood:load.graph_scale no
+wormwood;wormwood:load.graph_args --base 1000 -l 0
+wormwood;wormwood:load.graph_category system
+wormwood;wormwood:load.load.critical 120
+wormwood;wormwood:load.graph_order load
+wormwood;wormwood:load.graph_vlabel load
+wormwood;wormwood:load.graph_info The load average of the machine describes how many processes are in the run-queue (scheduled to run "immediately").
+wormwood;wormwood:load.load.info Average load for the five minutes.
+wormwood;wormwood:load.load.label load
+wormwood;wormwood:finn.graph_title Finn MC classifieds
+wormwood;wormwood:finn.new_mc.label New MCs
+wormwood;wormwood:finn.used_mc.info Number of used motorcycles for sale
+wormwood;wormwood:finn.snowmobile.label Snowmobiles
+wormwood;wormwood:finn.used_mc.label Used MC
+wormwood;wormwood:finn.new_mc.info Number of new motorcycles for sale
+wormwood;wormwood:finn.snowmobile.info Number of snowmobiles for sale
+wormwood;wormwood:finn.scooter.label Scooters
+wormwood;wormwood:finn.graph_args --base 1000 -l 0
+wormwood;wormwood:finn.graph_category politics
+wormwood;wormwood:finn.scooter.info Number of scooters for sale
+wormwood;wormwood:finn.graph_order used_mc scooter new_mc snowmobile atv
+wormwood;wormwood:finn.atv.label ATVs
+wormwood;wormwood:finn.atv.info Number of ATVs for sale
+wormwood;wormwood:cpu.graph_title CPU usage
+wormwood;wormwood:cpu.idle.info Idle CPU time
+wormwood;wormwood:cpu.softirq.type DERIVE
+wormwood;wormwood:cpu.user.warning 160
+wormwood;wormwood:cpu.graph_category system
+wormwood;wormwood:cpu.softirq.info CPU time spent handling "batched" interrupts
+wormwood;wormwood:cpu.system.label system
+wormwood;wormwood:cpu.system.max 200
+wormwood;wormwood:cpu.system.min 0
+wormwood;wormwood:cpu.user.max 200
+wormwood;wormwood:cpu.user.type DERIVE
+wormwood;wormwood:cpu.user.min 0
+wormwood;wormwood:cpu.nice.max 200
+wormwood;wormwood:cpu.user.draw STACK
+wormwood;wormwood:cpu.softirq.max 200
+wormwood;wormwood:cpu.irq.info CPU time spent handling interrupts
+wormwood;wormwood:cpu.softirq.draw STACK
+wormwood;wormwood:cpu.system.info CPU time spent by the kernel in system activities
+wormwood;wormwood:cpu.system.warning 60
+wormwood;wormwood:cpu.iowait.max 200
+wormwood;wormwood:cpu.idle.type DERIVE
+wormwood;wormwood:cpu.system.type DERIVE
+wormwood;wormwood:cpu.graph_vlabel %
+wormwood;wormwood:cpu.iowait.info CPU time spent waiting for I/O operations to finish
+wormwood;wormwood:cpu.irq.draw STACK
+wormwood;wormwood:cpu.system.critical 100
+wormwood;wormwood:cpu.irq.type DERIVE
+wormwood;wormwood:cpu.graph_period second
+wormwood;wormwood:cpu.idle.min 0
+wormwood;wormwood:cpu.softirq.min 0
+wormwood;wormwood:cpu.idle.max 200
+wormwood;wormwood:cpu.idle.draw STACK
+wormwood;wormwood:cpu.nice.draw STACK
+wormwood;wormwood:cpu.iowait.draw STACK
+wormwood;wormwood:cpu.nice.info CPU time spent by nice(1)d programs
+wormwood;wormwood:cpu.nice.type DERIVE
+wormwood;wormwood:cpu.graph_info This graph shows how CPU time is spent.
+wormwood;wormwood:cpu.iowait.label iowait
+wormwood;wormwood:cpu.irq.max 200
+wormwood;wormwood:cpu.system.draw AREA
+wormwood;wormwood:cpu.iowait.type DERIVE
+wormwood;wormwood:cpu.irq.label irq
+wormwood;wormwood:cpu.graph_scale no
+wormwood;wormwood:cpu.graph_args --base 1000 -r --lower-limit 0 --upper-limit 200
+wormwood;wormwood:cpu.graph_order system user nice idle iowait irq softirq
+wormwood;wormwood:cpu.user.label user
+wormwood;wormwood:cpu.nice.label nice
+wormwood;wormwood:cpu.user.info CPU time spent by normal programs and daemons
+wormwood;wormwood:cpu.irq.min 0
+wormwood;wormwood:cpu.iowait.min 0
+wormwood;wormwood:cpu.nice.min 0
+wormwood;wormwood:cpu.softirq.label softirq
+wormwood;wormwood:cpu.idle.label idle
+wormwood;wormwood:mysql_queries.graph_title MySQL queries
+wormwood;wormwood:mysql_queries.select.label select
+wormwood;wormwood:mysql_queries.graph_category mysql
+wormwood;wormwood:mysql_queries.delete.min 0
+wormwood;wormwood:mysql_queries.delete.type DERIVE
+wormwood;wormwood:mysql_queries.insert.type DERIVE
+wormwood;wormwood:mysql_queries.replace.min 0
+wormwood;wormwood:mysql_queries.update.label update
+wormwood;wormwood:mysql_queries.replace.max 500000
+wormwood;wormwood:mysql_queries.delete.draw STACK
+wormwood;wormwood:mysql_queries.cache_hits.draw STACK
+wormwood;wormwood:mysql_queries.graph_vlabel queries / ${graph_period}
+wormwood;wormwood:mysql_queries.cache_hits.type DERIVE
+wormwood;wormwood:mysql_queries.cache_hits.max 500000
+wormwood;wormwood:mysql_queries.delete.max 500000
+wormwood;wormwood:mysql_queries.select.draw AREA
+wormwood;wormwood:mysql_queries.replace.type DERIVE
+wormwood;wormwood:mysql_queries.update.max 500000
+wormwood;wormwood:mysql_queries.update.min 0
+wormwood;wormwood:mysql_queries.replace.label replace
+wormwood;wormwood:mysql_queries.delete.label delete
+wormwood;wormwood:mysql_queries.select.max 500000
+wormwood;wormwood:mysql_queries.cache_hits.min 0
+wormwood;wormwood:mysql_queries.replace.draw STACK
+wormwood;wormwood:mysql_queries.insert.max 500000
+wormwood;wormwood:mysql_queries.graph_total total
+wormwood;wormwood:mysql_queries.select.type DERIVE
+wormwood;wormwood:mysql_queries.update.type DERIVE
+wormwood;wormwood:mysql_queries.graph_args --base 1000
+wormwood;wormwood:mysql_queries.select.min 0
+wormwood;wormwood:mysql_queries.graph_order select delete update insert cache_hits replace
+wormwood;wormwood:mysql_queries.update.draw STACK
+wormwood;wormwood:mysql_queries.insert.label insert
+wormwood;wormwood:mysql_queries.insert.draw STACK
+wormwood;wormwood:mysql_queries.cache_hits.label cache_hits
+wormwood;wormwood:mysql_queries.insert.min 0
+wormwood;wormwood:finn_real_state.graph_title Finn real estate classifieds
+wormwood;wormwood:finn_real_state.for_rent.label For rent
+wormwood;wormwood:finn_real_state.abroad_for_sale.label For sale abroad
+wormwood;wormwood:finn_real_state.abroad_for_rent.label For rent abroad
+wormwood;wormwood:finn_real_state.abroad_for_rent.info Number of residences for rent abroad
+wormwood;wormwood:finn_real_state.graph_args --base 1000 -l 0
+wormwood;wormwood:finn_real_state.graph_category politics
+wormwood;wormwood:finn_real_state.for_sale.label For sale
+wormwood;wormwood:finn_real_state.graph_order for_sale for_rent abroad_for_sale abroad_for_rent
+wormwood;wormwood:finn_real_state.for_rent.info Number of apartments for rent
+wormwood;wormwood:finn_real_state.abroad_for_sale.info Number of residences for sale abroad
+wormwood;wormwood:finn_real_state.for_sale.info Number of residences for sale
+wormwood;wormwood:iostat.graph_title IOstat
+wormwood;wormwood:iostat.dev8_1_write.type DERIVE
+wormwood;wormwood:iostat.dev8_1_write.label sdb
+wormwood;wormwood:iostat.dev8_0_write.label sda
+wormwood;wormwood:iostat.graph_category disk
+wormwood;wormwood:iostat.dev8_1_read.graph no
+wormwood;wormwood:iostat.dev8_0_read.graph no
+wormwood;wormwood:iostat.graph_info This graph shows the I/O to and from block devices.
+wormwood;wormwood:iostat.dev8_0_read.type DERIVE
+wormwood;wormwood:iostat.dev8_0_write.max 900000
+wormwood;wormwood:iostat.dev8_0_write.negative dev8_0_read
+wormwood;wormwood:iostat.dev8_1_read.type DERIVE
+wormwood;wormwood:iostat.dev8_0_write.min 0
+wormwood;wormwood:iostat.dev8_1_write.info I/O on device sdb
+wormwood;wormwood:iostat.dev8_1_write.max 900000
+wormwood;wormwood:iostat.dev8_0_read.max 900000
+wormwood;wormwood:iostat.dev8_1_read.max 900000
+wormwood;wormwood:iostat.dev8_0_read.label sda
+wormwood;wormwood:iostat.dev8_1_write.negative dev8_1_read
+wormwood;wormwood:iostat.graph_total Total
+wormwood;wormwood:iostat.dev8_0_write.info I/O on device sda
+wormwood;wormwood:iostat.graph_args --base 1024 -l 0
+wormwood;wormwood:iostat.dev8_1_write.min 0
+wormwood;wormwood:iostat.dev8_0_read.min 0
+wormwood;wormwood:iostat.graph_order dev8_0_read dev8_0_write dev8_1_read dev8_1_write
+wormwood;wormwood:iostat.dev8_1_read.min 0
+wormwood;wormwood:iostat.graph_vlabel blocks per ${graph_period} read (-) / written (+)
+wormwood;wormwood:iostat.dev8_0_write.type DERIVE
+wormwood;wormwood:iostat.dev8_1_read.label sdb
+wormwood;wormwood:forks.graph_title Fork rate
+wormwood;wormwood:forks.forks.label forks
+wormwood;wormwood:forks.graph_args --base 1000 -l 0 
+wormwood;wormwood:forks.graph_category processes
+wormwood;wormwood:forks.graph_order forks
+wormwood;wormwood:forks.forks.info The number of forks per second.
+wormwood;wormwood:forks.graph_vlabel forks / ${graph_period}
+wormwood;wormwood:forks.forks.max 100000
+wormwood;wormwood:forks.forks.type DERIVE
+wormwood;wormwood:forks.graph_info This graph shows the forking rate (new processes started).
+wormwood;wormwood:forks.forks.min 0
+wormwood;wormwood:memory.graph_title Memory usage
+wormwood;wormwood:memory.cached.label cache
+wormwood;wormwood:memory.swap_cache.label swap_cache
+wormwood;wormwood:memory.graph_category system
+wormwood;wormwood:memory.apps.info Memory used by user-space applications.
+wormwood;wormwood:memory.mapped.label mapped
+wormwood;wormwood:memory.vmalloc_used.info Virtual memory used by the kernel (used when the memory does not have to be physically contiguous).
+wormwood;wormwood:memory.swap_cache.info A piece of memory that keeps track of pages that have been fetched from swap but not yet been modified.
+wormwood;wormwood:memory.free.info Wasted memory. Memory that is not used for anything at all.
+wormwood;wormwood:memory.apps.label apps
+wormwood;wormwood:memory.swap.label swap
+wormwood;wormwood:memory.cached.info Parked file data (file content) cache.
+wormwood;wormwood:memory.page_tables.info Memory used to map between virtual and physical memory addresses.
+wormwood;wormwood:memory.free.label unused
+wormwood;wormwood:memory.inactive.info Memory not currently used.
+wormwood;wormwood:memory.active.label active
+wormwood;wormwood:memory.committed.label committed
+wormwood;wormwood:memory.active.info Memory recently used. Not reclaimed unless absolutely necessary.
+wormwood;wormwood:memory.active.draw LINE2
+wormwood;wormwood:memory.free.draw STACK
+wormwood;wormwood:memory.mapped.draw LINE2
+wormwood;wormwood:memory.swap.draw STACK
+wormwood;wormwood:memory.slab.info Memory used by the kernel (major users are caches like inode, dentry, etc).
+wormwood;wormwood:memory.page_tables.draw STACK
+wormwood;wormwood:memory.inactive.label inactive
+wormwood;wormwood:memory.slab.draw STACK
+wormwood;wormwood:memory.swap_cache.draw STACK
+wormwood;wormwood:memory.vmalloc_used.label vmalloc_used
+wormwood;wormwood:memory.committed.draw LINE2
+wormwood;wormwood:memory.graph_info This graph shows what the machine uses its memory for.
+wormwood;wormwood:memory.slab.label slab_cache
+wormwood;wormwood:memory.mapped.info All mmap()ed pages.
+wormwood;wormwood:memory.buffers.draw STACK
+wormwood;wormwood:memory.swap.info Swap space used.
+wormwood;wormwood:memory.apps.draw AREA
+wormwood;wormwood:memory.buffers.info Block device (e.g. harddisk) cache. Also where "dirty" blocks are stored until written.
+wormwood;wormwood:memory.graph_args --base 1024 -l 0 --vertical-label Bytes --upper-limit 523247616
+wormwood;wormwood:memory.inactive.draw LINE2
+wormwood;wormwood:memory.page_tables.label page_tables
+wormwood;wormwood:memory.graph_order apps page_tables swap_cache vmalloc_used slab cached buffers free swap committed mapped active inactive
+wormwood;wormwood:memory.cached.draw STACK
+wormwood;wormwood:memory.vmalloc_used.draw STACK
+wormwood;wormwood:memory.buffers.label buffers
+wormwood;wormwood:memory.committed.info The amount of memory allocated by the kernel to programs. Overcommitting is normal, but may indicate memory leaks.
+wormwood;wormwood:exim_mailqueue.graph_title Exim Mailqueue
+wormwood;wormwood:exim_mailqueue.mails.draw AREA
+wormwood;wormwood:exim_mailqueue.mails.critical 200
+wormwood;wormwood:exim_mailqueue.graph_args --base 1000 -l 0
+wormwood;wormwood:exim_mailqueue.graph_category exim
+wormwood;wormwood:exim_mailqueue.mails.label mails
+wormwood;wormwood:exim_mailqueue.mails.warning 100
+wormwood;wormwood:exim_mailqueue.graph_order mails
+wormwood;wormwood:exim_mailqueue.graph_vlabel mails in queue
+wormwood;wormwood:if_err_eth0.graph_title eth0 errors
+wormwood;wormwood:if_err_eth0.rcvd.label packets
+wormwood;wormwood:if_err_eth0.trans.negative rcvd
+wormwood;wormwood:if_err_eth0.trans.type COUNTER
+wormwood;wormwood:if_err_eth0.graph_args --base 1000
+wormwood;wormwood:if_err_eth0.graph_category network
+wormwood;wormwood:if_err_eth0.graph_order rcvd trans
+wormwood;wormwood:if_err_eth0.rcvd.graph no
+wormwood;wormwood:if_err_eth0.trans.warning 1
+wormwood;wormwood:if_err_eth0.rcvd.type COUNTER
+wormwood;wormwood:if_err_eth0.graph_vlabel packets in (-) / out (+) per ${graph_period}
+wormwood;wormwood:if_err_eth0.graph_info This graph shows the amount of errors on the eth0 network interface.
+wormwood;wormwood:if_err_eth0.rcvd.warning 1
+wormwood;wormwood:if_err_eth0.trans.label packets
+wormwood;wormwood:processes.graph_title Number of Processes
+wormwood;wormwood:processes.processes.info The current number of processes.
+wormwood;wormwood:processes.graph_args --base 1000 -l 0 
+wormwood;wormwood:processes.graph_category processes
+wormwood;wormwood:processes.processes.label processes
+wormwood;wormwood:processes.graph_order processes
+wormwood;wormwood:processes.processes.draw LINE2
+wormwood;wormwood:processes.graph_vlabel number of processes
+wormwood;wormwood:processes.graph_info This graph shows the number of processes in the system.
+wormwood;wormwood:apache_volume.graph_title Apache volume
+wormwood;wormwood:apache_volume.volume80.label port 80
+wormwood;wormwood:apache_volume.graph_args --base 1000
+wormwood;wormwood:apache_volume.graph_category apache
+wormwood;wormwood:apache_volume.volume80.type DERIVE
+wormwood;wormwood:apache_volume.graph_order volume80
+wormwood;wormwood:apache_volume.volume80.min 0
+wormwood;wormwood:apache_volume.graph_vlabel bytes per \${graph_period}
+wormwood;wormwood:apache_volume.volume80.max 1000000000
+wormwood;wormwood:netstat.graph_title Netstat
+wormwood;wormwood:netstat.active.max 50000
+wormwood;wormwood:netstat.failed.info The number of failed TCP connection attempts per second.
+wormwood;wormwood:netstat.passive.info The number of passive TCP openings per second.
+wormwood;wormwood:netstat.passive.label passive
+wormwood;wormwood:netstat.failed.label failed
+wormwood;wormwood:netstat.resets.max 50000
+wormwood;wormwood:netstat.active.min 0
+wormwood;wormwood:netstat.graph_category network
+wormwood;wormwood:netstat.established.type GAUGE
+wormwood;wormwood:netstat.failed.type DERIVE
+wormwood;wormwood:netstat.established.info The number of currently open connections.
+wormwood;wormwood:netstat.graph_info This graph shows the TCP activity of all the network interfaces combined.
+wormwood;wormwood:netstat.established.label established
+wormwood;wormwood:netstat.established.max 50000
+wormwood;wormwood:netstat.passive.type DERIVE
+wormwood;wormwood:netstat.resets.label resets
+wormwood;wormwood:netstat.resets.min 0
+wormwood;wormwood:netstat.passive.max 50000
+wormwood;wormwood:netstat.active.label active
+wormwood;wormwood:netstat.failed.min 0
+wormwood;wormwood:netstat.active.info The number of active TCP openings per second.
+wormwood;wormwood:netstat.graph_args -l 0 --base 1000
+wormwood;wormwood:netstat.graph_order active passive failed resets established
+wormwood;wormwood:netstat.resets.type DERIVE
+wormwood;wormwood:netstat.resets.info The number of TCP connection resets.
+wormwood;wormwood:netstat.graph_vlabel active connections
+wormwood;wormwood:netstat.active.type DERIVE
+wormwood;wormwood:netstat.failed.max 50000
+wormwood;wormwood:netstat.passive.min 0
+wormwood;wormwood:netstat.graph_period second
+wormwood;wormwood:filmgrid.graph_title Database entries
+wormwood;wormwood:filmgrid.images.label Images
+wormwood;wormwood:filmgrid.graph_args --base 1000 -l 0
+wormwood;wormwood:filmgrid.graph_category filmgrid
+wormwood;wormwood:filmgrid.trailers.label Trailers
+wormwood;wormwood:filmgrid.images.info Number of images
+wormwood;wormwood:filmgrid.graph_order trailers images
+wormwood;wormwood:filmgrid.trailers.info Number of trailer links
+wormwood;wormwood:mysql_bytes.graph_title MySQL throughput
+wormwood;wormwood:mysql_bytes.graph_category mysql
+wormwood;wormwood:mysql_bytes.sent.max 80000000
+wormwood;wormwood:mysql_bytes.recv.graph no
+wormwood;wormwood:mysql_bytes.sent.type DERIVE
+wormwood;wormwood:mysql_bytes.recv.label transfer rate
+wormwood;wormwood:mysql_bytes.recv.draw LINE2
+wormwood;wormwood:mysql_bytes.sent.label transfer rate
+wormwood;wormwood:mysql_bytes.recv.min 0
+wormwood;wormwood:mysql_bytes.sent.min 0
+wormwood;wormwood:mysql_bytes.recv.type DERIVE
+wormwood;wormwood:mysql_bytes.graph_args --base 1024
+wormwood;wormwood:mysql_bytes.recv.max 80000000
+wormwood;wormwood:mysql_bytes.graph_order recv sent
+wormwood;wormwood:mysql_bytes.sent.negative recv
+wormwood;wormwood:mysql_bytes.graph_vlabel bytes received (-) / sent (+) per ${graph_period}
+wormwood;wormwood:mysql_bytes.sent.draw LINE2
+wormwood;wormwood:exim_mailstats.graph_title Exim mail throughput
+wormwood;wormwood:exim_mailstats.received.label received
+wormwood;wormwood:exim_mailstats.completed.type DERIVE
+wormwood;wormwood:exim_mailstats.rejected.type DERIVE
+wormwood;wormwood:exim_mailstats.rejected.label rejected
+wormwood;wormwood:exim_mailstats.graph_scale no
+wormwood;wormwood:exim_mailstats.graph_args --base 1000 -l 0
+wormwood;wormwood:exim_mailstats.graph_category exim
+wormwood;wormwood:exim_mailstats.received.min 0
+wormwood;wormwood:exim_mailstats.graph_order received completed rejected
+wormwood;wormwood:exim_mailstats.completed.label completed
+wormwood;wormwood:exim_mailstats.graph_vlabel mails/${graph_period}
+wormwood;wormwood:exim_mailstats.completed.min 0
+wormwood;wormwood:exim_mailstats.rejected.min 0
+wormwood;wormwood:exim_mailstats.received.draw AREA
+wormwood;wormwood:exim_mailstats.received.type DERIVE
+wormwood;wormwood:use_node_name yes
+wormwood;wormwood:address 127.0.0.1
+tmpldir /etc/munin/templates
+htmldir /var/www/munin
+dbdir /var/lib/munin
+rundir /var/run/munin
+logdir /var/log/munin
