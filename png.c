@@ -55,6 +55,8 @@ write_png(const char *file_name, size_t width, size_t height, unsigned char* dat
       8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE,
       PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
 
+  png_set_compression_level(png_ptr, Z_BEST_SPEED);
+
   png_set_rows(png_ptr, info_ptr, (png_byte**) row_pointers);
   png_write_png(png_ptr, info_ptr, PNG_TRANSFORM_IDENTITY, row_pointers);
   png_write_end(png_ptr, info_ptr);

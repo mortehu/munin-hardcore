@@ -50,7 +50,7 @@ CONFIG_CLEAN_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
-am_graph_OBJECTS = graph.$(OBJEXT) png.$(OBJEXT)
+am_graph_OBJECTS = graph.$(OBJEXT) png.$(OBJEXT) font.$(OBJEXT)
 graph_OBJECTS = $(am_graph_OBJECTS)
 graph_LDADD = $(LDADD)
 DEFAULT_INCLUDES = -I. -I$(srcdir)
@@ -150,9 +150,10 @@ sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
-AM_CFLAGS = -g -O3
-graph_SOURCES = graph.c png.c
-graph_LDFLAGS = -lpng
+AM_CFLAGS = -g
+AM_CPPFLAGS = -I/usr/include/freetype2
+graph_SOURCES = graph.c png.c font.c
+graph_LDFLAGS = -lpng -lfreetype
 all: all-am
 
 .SUFFIXES:
@@ -223,6 +224,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/font.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/graph.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/png.Po@am__quote@
 

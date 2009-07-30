@@ -17,6 +17,9 @@ int
 write_png(const char *file_name, size_t width, size_t height, unsigned char* data);
 
 void
+font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direction);
+
+void
 do_graph(struct graph* g, size_t interval, const char* suffix);
 
 static const uint32_t colors[] =
@@ -221,6 +224,8 @@ main(int argc, char** argv)
   char* line_end;
   size_t lineno = 2;
   size_t graph, curve;
+
+  font_init();
 
   if(!(f = fopen(DATA_FILE, "r")))
     errx(EXIT_FAILURE, "Failed to open '%s' for reading: %s", DATA_FILE, strerror(errno));
@@ -793,14 +798,27 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   for(j = min / step_size; j <= max / step_size; ++j)
   {
-    if(!j)
-      continue;
+    char buf[32];
 
     y = graph_height - (j * step_size - min) * (graph_height - 1) / (max - min) - 1;
+
+    sprintf(buf, "%.0f", j * step_size);
+
+    font_draw(&canvas, 5, graph_y + y, buf, 0);
+
+    if(!j)
+      continue;
 
     for(x = 0; x < graph_width; x += 2)
       draw_pixel(&canvas, x + graph_x, y + graph_y, 0xc0c0c0);
   }
+
+  y = graph_y + graph_height + 20;
+
+  font_draw(&canvas, canvas.width - 14, 5, "Munin Hardcore / Morten Hustveit", 1);
+
+  if(g->vlabel)
+    font_draw(&canvas, 14, graph_y + graph_height, g->vlabel, 2);
 
   for(curve = 0; curve < g->curve_count; ++curve)
   {
@@ -818,9 +836,16 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     if(c->negative)
       plot_gauge(&canvas, &g->curves[ca->negative], &cas[ca->negative], graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
 
-    draw_rect(&canvas, 10, graph_y + graph_height + 10 + graph_index * 15, 10, 10, color);
+    draw_rect(&canvas, 10, y,  6, 6, color);
+    draw_line(&canvas,  9, y - 1, 17, y - 1, 0);
+    draw_line(&canvas,  9, y + 6, 17, y + 6, 0);
+    draw_line(&canvas,  9, y,  9, y + 6, 0);
+    draw_line(&canvas, 16, y, 16, y + 6, 0);
+
+    font_draw(&canvas, 22, y + 9, c->label ? c->label : c->name, 0);
 
     ++graph_index;
+    y += 15;
   }
 
   y = graph_height + min * (graph_height - 1) / (max - min) - 1;

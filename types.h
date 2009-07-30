@@ -1,6 +1,8 @@
 #ifndef TYPES_H_
 #define TYPES_H_ 1
 
+#include <stdint.h>
+
 union unival
 {
   uint32_t      u_count;
