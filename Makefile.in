@@ -150,6 +150,7 @@ sbindir = @sbindir@
 sharedstatedir = @sharedstatedir@
 sysconfdir = @sysconfdir@
 target_alias = @target_alias@
+AM_CFLAGS = -g -O2
 graph_SOURCES = graph.c png.c
 graph_LDFLAGS = -lpng
 all: all-am

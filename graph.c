@@ -1,5 +1,7 @@
+#include <assert.h>
 #include <string.h>
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,10 +11,35 @@
 
 #include "types.h"
 
+#define ANTI_ALIASING 1
+
 int
 write_png(const char *file_name, size_t width, size_t height, unsigned char* data);
 
-unsigned char canvas[1024][495][3];
+void
+do_graph(struct graph* g, size_t interval, const char* suffix);
+
+static const uint32_t colors[] =
+{
+  0x21fb21, 0x0022ff, 0xff0000, 0x00aaaa, 0xff00ff, 0xffa500, 0xcc0000,
+  0x0000cc, 0x0080c0, 0x8080c0, 0xff0080, 0x800080, 0x688e23
+};
+
+static struct graph* graphs;
+static size_t graph_count;
+static size_t graph_alloc;
+
+static const char* tmpldir = "/etc/munin/templates";
+static const char* htmldir = "/var/www/munin";
+static const char* dbdir = "/var/lib/munin";
+static const char* rundir = "/var/run/munin";
+static const char* logdir = "/var/log/munin";
+
+#define DATA_FILE "/var/lib/munin/datafile"
+#define DATA_FILE_SIGNATURE "version 1.2.6\n"
+
+#define MAX_DIM 2048
+
 
 void
 rrd_parse(struct rrd* result, const char* filename)
@@ -98,63 +125,6 @@ rrd_free(struct rrd* data)
   free(data->values);
 }
 
-double*
-rrd_get_data(struct rrd* data, const char* ds_name, const char* cf_name, size_t pdp_count, size_t* rra_index)
-{
-  size_t i, j = 0;
-  size_t ds, rra, data_offset = 0;
-  double* result;
-
-  for(ds = 0; ds < data->header.ds_count; ++ds)
-  {
-    if(!strcmp(data->ds_defs[ds].ds_name, ds_name))
-      break;
-  }
-
-  if(ds == data->header.ds_count)
-    return 0;
-
-  for(rra = 0; rra < data->header.rra_count; ++rra)
-  {
-    if(data->rra_defs[rra].pdp_count == pdp_count
-    && !strcmp(data->rra_defs[rra].cf_name, cf_name))
-    {
-      result = malloc(sizeof(double) * data->rra_defs[rra].row_count);
-
-      for(i = data->rra_ptrs[rra]; i < data->rra_defs[rra].row_count; ++i, ++j)
-      {
-        result[j] = data->values[data_offset + i * data->header.ds_count + ds];
-      }
-
-      for(i = 0; i < data->rra_ptrs[rra]; ++i, ++j)
-      {
-        result[j] = data->values[data_offset + i * data->header.ds_count + ds];
-      }
-
-      *rra_index = rra;
-
-      return result;
-    }
-
-    data_offset += data->rra_defs[rra].row_count * data->header.ds_count;
-  }
-
-  return 0;
-}
-
-static struct graph* graphs;
-static size_t graph_count;
-static size_t graph_alloc;
-
-static const char* tmpldir = "/etc/munin/templates";
-static const char* htmldir = "/var/www/munin";
-static const char* dbdir = "/var/lib/munin";
-static const char* rundir = "/var/run/munin";
-static const char* logdir = "/var/log/munin";
-
-#define DATA_FILE "/var/lib/munin/datafile"
-#define DATA_FILE_SIGNATURE "version 1.2.6\n"
-
 size_t
 graph_index(const char* domain, const char* host, const char* name)
 {
@@ -211,6 +181,15 @@ curve_index(struct graph* graph, const char* name)
   ++graph->curve_count;
 
   return i;
+}
+
+int
+curve_name_cmp(const void* plhs, const void* prhs)
+{
+  const struct curve* lhs = plhs;
+  const struct curve* rhs = prhs;
+
+  return strcmp(lhs->name, rhs->name);
 }
 
 int
@@ -361,6 +340,8 @@ main(int argc, char** argv)
           graphs[graph].scale = value_start;
         else if(!strcmp(graph_key, "graph_height"))
           graphs[graph].height = strtol(value_start, 0, 0);
+        else if(!strcmp(graph_key, "graph_width"))
+          graphs[graph].width = strtol(value_start, 0, 0);
         else if(!strcmp(graph_key, "graph_period"))
           graphs[graph].period = value_start;
         else if(!strcmp(graph_key, "graph_total"))
@@ -384,7 +365,7 @@ main(int argc, char** argv)
           else if(!strcmp(graph_key, "draw"))
             graphs[graph].curves[curve].draw = value_start;
           else if(!strcmp(graph_key, "graph"))
-            graphs[graph].curves[curve].graph = value_start;
+            graphs[graph].curves[curve].nograph = !strcasecmp(value_start, "no");
           else if(!strcmp(graph_key, "type"))
             graphs[graph].curves[curve].type = value_start;
           else if(!strcmp(graph_key, "info"))
@@ -420,8 +401,9 @@ main(int argc, char** argv)
     for(curve = 0; curve < g->curve_count; ++curve)
     {
       struct curve* c = &g->curves[curve];
+
+      size_t rra, offset = 0;
       int suffix;
-      char* path;
 
       if(!c->type || !strcasecmp(c->type, "gauge"))
         suffix = 'g';
@@ -432,36 +414,388 @@ main(int argc, char** argv)
       else
         errx(EXIT_FAILURE, "Unknown curve type '%s'", c->type);
 
-      if(-1 == asprintf(&path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, g->domain, g->host, g->name, c->name, suffix))
+      if(-1 == asprintf(&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, g->domain, g->host, g->name, c->name, suffix))
         errx(EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror(errno));
 
-      rrd_parse(&c->data, path);
-
-      free(path);
+      rrd_parse(&c->data, c->path);
     }
+
+    qsort(g->curves, g->curve_count, sizeof(struct curve), curve_name_cmp);
+
+    do_graph(g, 1, "day");
+    do_graph(g, 6, "week");
+    do_graph(g, 24, "month");
+    do_graph(g, 288, "year");
+
+    for(curve = 0; curve < g->curve_count; ++curve)
+      rrd_free(&g->curves[curve].data);
+
+    free(g->curves);
   }
-#if 0
-  memset(canvas, 0xff, sizeof(canvas));
 
-  struct rrd data;
-
-  rrd_parse(&data, "wormwood-iostat-dev8_0_write-d.rrd");
-
-  double* values;
-  size_t i, rra;
-
-  values = rrd_get_data(&data, "42", "AVERAGE", 1, &rra);
-
-  if(!values)
-    errx(EXIT_FAILURE, "Data source not found");
-
-  for(i = 0; i < data.rra_defs[rra].row_count; ++i)
-    printf("%6.2f\n", values[i]);
-
-  free(values);
-
-  rrd_free(&data);
-#endif
+  free(graphs);
+  free(data);
 
   return EXIT_SUCCESS;
+}
+
+struct curve_args
+{
+  double max;
+  int rra_min, rra_max, rra_avg;
+  size_t rra_min_offset, rra_max_offset, rra_avg_offset;
+  size_t negative;
+};
+
+void
+draw_line(struct canvas* canvas, size_t x0, size_t y0, size_t x1, size_t y1, uint32_t color)
+{
+  size_t y_count, x_count;
+  unsigned char* pixel;
+  unsigned char r, g, b;
+  int step_x, step_y, x, y;
+
+  r = color >> 16;
+  g = color >> 8;
+  b = color;
+
+  y_count = abs(y1 - y0);
+  x_count = abs(x1 - x0);
+
+  if(y_count > x_count)
+  {
+    step_y = (y0 < y1) ? 1 : -1;
+    step_x = (x1 - x0) * 65536 / y_count;
+
+    x = x0 << 16;
+
+    while(y0 != y1)
+    {
+      pixel = &canvas->data[(y0 * canvas->width + (x >> 16)) * 3];
+
+#if ANTI_ALIASING
+      unsigned int weight_a = (x & 0xffff) >> 8;
+      unsigned int weight_b = 0xff - weight_a;
+
+      pixel[0] = (weight_b * r + weight_a * pixel[0]) / 255;
+      pixel[1] = (weight_b * g + weight_a * pixel[1]) / 255;
+      pixel[2] = (weight_b * b + weight_a * pixel[2]) / 255;
+
+      pixel += 3;
+
+      pixel[0] = (weight_a * r + weight_b * pixel[0]) / 255;
+      pixel[1] = (weight_a * g + weight_b * pixel[1]) / 255;
+      pixel[2] = (weight_a * b + weight_b * pixel[2]) / 255;
+#else
+      pixel[0] = r;
+      pixel[1] = g;
+      pixel[2] = b;
+#endif
+
+      x += step_x;
+      y0 += step_y;
+    }
+  }
+  else
+  {
+    step_x = (x0 < x1) ? 1 : -1;
+    step_y = (y1 - y0) * 65536 / x_count;
+
+    y = y0 << 16;
+
+    while(x0 != x1)
+    {
+      pixel = &canvas->data[((y >> 16) * canvas->width + x0) * 3];
+
+#if ANTI_ALIASING
+      unsigned int weight_a = (y & 0xffff) >> 8;
+      unsigned int weight_b = 0xff - weight_a;
+
+      pixel[0] = (weight_b * r + weight_a * pixel[0]) / 255;
+      pixel[1] = (weight_b * g + weight_a * pixel[1]) / 255;
+      pixel[2] = (weight_b * b + weight_a * pixel[2]) / 255;
+
+      pixel += canvas->width * 3;
+
+      pixel[0] = (weight_a * r + weight_b * pixel[0]) / 255;
+      pixel[1] = (weight_a * g + weight_b * pixel[1]) / 255;
+      pixel[2] = (weight_a * b + weight_b * pixel[2]) / 255;
+#else
+      pixel[0] = r;
+      pixel[1] = g;
+      pixel[2] = b;
+#endif
+
+      x0 += step_x;
+      y += step_y;
+    }
+  }
+}
+
+void
+draw_rect(struct canvas* canvas, size_t x, size_t y, size_t width, size_t height, uint32_t color)
+{
+  unsigned char* out = &canvas->data[(y * canvas->width + x) * 3];
+  unsigned char r, g, b;
+  size_t yy, xx;
+
+  r = color >> 16;
+  g = color >> 8;
+  b = color;
+
+  for(yy = 0; yy < height; ++yy)
+  {
+    for(xx = 0; xx < width; ++xx)
+    {
+      out[0] = r;
+      out[1] = g;
+      out[2] = b;
+      out += 3;
+    }
+
+    out += (canvas->width - width) * 3;
+  }
+}
+
+void
+draw_pixel(struct canvas* canvas, size_t x, size_t y, uint32_t color)
+{
+  size_t i = (y * canvas->width + x) * 3;
+
+  canvas->data[i + 0] = color >> 16;
+  canvas->data[i + 1] = color >> 8;
+  canvas->data[i + 2] = color;
+}
+
+#define PLOT_NEGATIVE 0x0001
+
+void
+plot_gauge(struct canvas* canvas,
+           struct curve* c, struct curve_args* ca,
+           size_t graph_x, size_t graph_y,
+           size_t width, size_t height,
+           double min, double max, size_t ds,
+           uint32_t color, unsigned int flags)
+{
+  size_t i;
+
+  struct rrd* data;
+  size_t data_offset, rra;
+  size_t row_count, skip;
+
+  int x = 0, y, prev_y = -1, n;
+
+  data = &c->data;
+  rra = ca->rra_avg;
+  data_offset = ca->rra_avg_offset;
+  row_count = data->rra_defs[rra].row_count;
+
+  skip = row_count - width;
+
+  for(i = 0; i < i < row_count && x < width; ++i, ++x)
+  {
+    double value = data->values[data_offset + ((i + skip + data->rra_ptrs[rra]) % row_count) * data->header.ds_count + ds];
+
+    if(isnan(value))
+    {
+      prev_y = -1;
+
+      continue;
+    }
+
+    if(flags & PLOT_NEGATIVE)
+      value = -value;
+
+    y = height - (value - min) * (height - 1) / (max - min) - 1;
+
+    if(prev_y != -1)
+      draw_line(canvas, graph_x + x - 1, graph_y + prev_y, graph_x + x, graph_y + y, color);
+    else
+      canvas->data[((graph_y + y) * width + (graph_x + x)) * 3] = color;
+
+    prev_y = y;
+  }
+}
+
+double
+calc_step_size(double range, size_t graph_height)
+{
+  const unsigned int factors[] = { 1, 2, 5 };
+  unsigned int i;
+
+  double min_step = range / (graph_height / 15.0);
+  double mag = pow(10.0, floor(log(min_step) / log(10.0)));
+
+  for(i = 0; i < 3; ++i)
+    if(mag * i >= min_step)
+      return mag * i;
+
+  return mag * 10;
+}
+
+void
+do_graph(struct graph* g, size_t interval, const char* suffix)
+{
+  size_t i, curve, ds = 0;
+  int j;
+
+  size_t visible_graph_count = 0;
+
+  struct curve_args* cas = alloca(sizeof(struct curve_args) * g->curve_count);
+
+  for(curve = 0; curve < g->curve_count; ++curve)
+  {
+    struct curve* c = &g->curves[curve];
+    struct curve_args* ca = &cas[curve];
+    size_t rra, offset = 0;
+
+    ca->max = 0.0;
+    ca->rra_min = ca->rra_max = ca->rra_avg = -1;
+
+    for(rra = 0; rra < c->data.header.rra_count; ++rra)
+    {
+      if(c->data.rra_defs[rra].pdp_count != interval)
+      {
+        offset += c->data.rra_defs[rra].row_count * c->data.header.ds_count;
+
+        continue;
+      }
+
+      if(!strcmp(c->data.rra_defs[rra].cf_name, "MAX"))
+      {
+        ca->rra_max = rra;
+        ca->rra_max_offset = offset;
+      }
+      else if(!strcmp(c->data.rra_defs[rra].cf_name, "MIN"))
+      {
+        ca->rra_min = rra;
+        ca->rra_min_offset = offset;
+      }
+      else if(!strcmp(c->data.rra_defs[rra].cf_name, "AVERAGE"))
+      {
+        ca->rra_avg = rra;
+        ca->rra_avg_offset = offset;
+      }
+
+      offset += c->data.rra_defs[rra].row_count * c->data.header.ds_count;
+    }
+
+    if(ca->rra_min == -1 || ca->rra_max == -1 || ca->rra_avg == -1)
+      errx(EXIT_FAILURE, "Did not find all required rr-archivess in '%s'", c->path);
+
+    for(i = 0; i < c->data.rra_defs[ca->rra_avg].row_count; ++i)
+    {
+      double value = c->data.values[ca->rra_avg_offset + i * c->data.header.ds_count];
+
+      if(value > ca->max)
+        ca->max = value;
+    }
+
+    if(!c->nograph)
+      ++visible_graph_count;
+
+    if(c->negative)
+    {
+      for(i = 0; i < g->curve_count; ++i)
+      {
+        if(!strcmp(g->curves[i].name, c->negative))
+          break;
+      }
+
+      if(i == g->curve_count)
+        errx(EXIT_FAILURE, "Negative '%s' for '%s' not found", c->name, c->negative);
+
+      ca->negative = i;
+    }
+    else
+      ca->negative = (size_t) -1;
+  }
+
+  double min = 0, max = 0;
+
+  for(curve = 0; curve < g->curve_count; ++curve)
+  {
+    struct curve* c = &g->curves[curve];
+    struct curve_args* ca = &cas[curve];
+
+    if(c->nograph)
+      continue;
+
+    if(ca->max > max)
+      max = ca->max;
+
+    if(c->negative)
+    {
+      if(-cas[ca->negative].max < min)
+        min = -cas[ca->negative].max;
+    }
+  }
+
+  char* png_path;
+  struct canvas canvas;
+
+  size_t graph_width, graph_height;
+  size_t graph_x = 60, graph_y = 30;
+
+  size_t x, y;
+
+  graph_width = g->width ? g->width : 400;
+  graph_height = g->height ? g->height : 175;
+
+  if(graph_width > MAX_DIM || graph_height > MAX_DIM)
+    errx(EXIT_FAILURE, "Graph dimensions %zux%zu are too big", graph_width, graph_height);
+
+  canvas.width = graph_width + 100;
+  canvas.height = graph_height + 100 + visible_graph_count * 15;
+
+  canvas.data = malloc(3 * canvas.width * canvas.height);
+  memset(canvas.data, 0xee, 3 * canvas.width * canvas.height);
+
+  draw_rect(&canvas, graph_x, graph_y, graph_width, graph_height, 0xffffff);
+
+  double step_size = calc_step_size(max - min, graph_height);
+  size_t graph_index = 0;
+
+  for(j = min / step_size; j <= max / step_size; ++j)
+  {
+    if(!j)
+      continue;
+
+    y = graph_height - (j * step_size - min) * (graph_height - 1) / (max - min) - 1;
+
+    for(x = 0; x < graph_width; x += 2)
+      draw_pixel(&canvas, x + graph_x, y + graph_y, 0xc0c0c0);
+  }
+
+  for(curve = 0; curve < g->curve_count; ++curve)
+  {
+    struct curve* c = &g->curves[curve];
+    struct curve_args* ca = &cas[curve];
+    uint32_t color;
+
+    if(c->nograph)
+      continue;
+
+    color = colors[graph_index % sizeof(colors)];
+
+    plot_gauge(&canvas, c, ca, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
+
+    if(c->negative)
+      plot_gauge(&canvas, &g->curves[ca->negative], &cas[ca->negative], graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
+
+    draw_rect(&canvas, 10, graph_y + graph_height + 10 + graph_index * 15, 10, 10, color);
+
+    ++graph_index;
+  }
+
+  y = graph_height + min * (graph_height - 1) / (max - min) - 1;
+
+  draw_line(&canvas, graph_x, y + graph_y, graph_x + graph_width - 1, y + graph_y, 0);
+
+  asprintf(&png_path, "graphs/%s-%s-%s.png", g->host, g->name, suffix);
+
+  write_png(png_path, canvas.width, canvas.height, canvas.data);
+
+  free(png_path);
+  free(canvas.data);
 }

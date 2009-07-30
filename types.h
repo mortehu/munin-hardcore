@@ -64,6 +64,7 @@ struct rrd
 
 struct curve
 {
+  char* path;
   struct rrd data;
 
   const char* name;
@@ -73,7 +74,7 @@ struct curve
   const char* info;
   const char* cdef;
   const char* negative;
-  const char* graph;
+  int nograph;
 
   double max, min, warning, critical;
 };
@@ -94,11 +95,17 @@ struct graph
   const char* total;
   const char* vlabel;
 
-  size_t height;
+  size_t width, height;
 
   struct curve* curves;
   size_t curve_count;
   size_t curve_alloc;
+};
+
+struct canvas
+{
+  unsigned char* data;
+  size_t width, height;
 };
 
 #endif /* !TYPES_H_ */

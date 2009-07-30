@@ -16,6 +16,7 @@ write_png(const char *file_name, size_t width, size_t height, unsigned char* dat
 {
   FILE *fp;
   size_t i;
+
   png_structp png_ptr;
   png_infop info_ptr;
   png_bytepp row_pointers;
