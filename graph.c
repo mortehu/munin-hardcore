@@ -36,7 +36,6 @@ static const char* rundir = "/var/run/munin";
 static const char* logdir = "/var/log/munin";
 
 #define DATA_FILE "/var/lib/munin/datafile"
-#define DATA_FILE_SIGNATURE "version 1.2.6\n"
 
 #define MAX_DIM 2048
 
@@ -58,7 +57,12 @@ rrd_parse(struct rrd* result, const char* filename)
   if(memcmp("RRD", result->header.cookie, 4))
     errx(EXIT_FAILURE, "Incorrect cookie in '%s'", filename);
 
-  if(memcmp("0003", result->header.version, 4))
+  int version = (result->header.version[0] - '0') * 1000
+              + (result->header.version[1] - '0') * 100
+              + (result->header.version[2] - '0') * 10
+              + (result->header.version[3] - '0');
+
+  if(version < 1 || version > 3)
     errx(EXIT_FAILURE, "Unsupported RRD version in '%s'", filename);
 
   if(result->header.float_cookie != 8.642135E130)
@@ -86,8 +90,21 @@ rrd_parse(struct rrd* result, const char* filename)
       errx(EXIT_FAILURE, "Missing NUL-termination in rr-archive definition string in '%s'", filename);
   }
 
-  if(1 != fread(&result->live_header, sizeof(result->live_header), 1, f))
-    errx(EXIT_FAILURE, "Error reading live header from '%s': %s", filename, strerror(errno));
+  if(version >= 3)
+  {
+    if(1 != fread(&result->live_header, sizeof(result->live_header), 1, f))
+      errx(EXIT_FAILURE, "Error reading live header from '%s': %s", filename, strerror(errno));
+  }
+  else
+  {
+    time_t val;
+
+    if(1 != fread(&val, sizeof(val), 1, f))
+      errx(EXIT_FAILURE, "Error reading live header from '%s': %s", filename, strerror(errno));
+
+    result->live_header.last_up = val;
+    result->live_header.last_up_usec = 0;
+  }
 
   result->pdp_preps = malloc(sizeof(struct pdp_prepare) * result->header.ds_count);
 
@@ -112,6 +129,8 @@ rrd_parse(struct rrd* result, const char* filename)
 
   if(data_size != fread(result->values, sizeof(double), data_size, f))
     errx(EXIT_FAILURE, "Error reading %zu values from '%s': %s", data_size, filename, strerror(errno));
+
+  fclose(f);
 }
 
 void
@@ -199,6 +218,7 @@ main(int argc, char** argv)
   size_t data_size;
   char* data;
   char* in;
+  char* line_end;
   size_t lineno = 2;
   size_t graph, curve;
 
@@ -222,17 +242,28 @@ main(int argc, char** argv)
 
   data[data_size] = 0;
 
-  if(data_size < 14 || memcmp(data, "version 1.2.6\n", 14))
+  in = data;
+  line_end = strchr(in, '\n');
+
+  if(!line_end)
+    errx(EXIT_FAILURE, "No newlines in '%s'", DATA_FILE);
+
+  unsigned int ver_major, ver_minor, ver_patch;
+
+  if(3 != sscanf(in, "version %u.%u.%u\n", &ver_major, &ver_minor, &ver_patch))
     errx(EXIT_FAILURE, "Unsupported version signature at start of '%s'", DATA_FILE);
 
-  in = data + 14;
+  if(ver_major != 1 || ver_minor != 2)
+    errx(EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2", ver_major, ver_minor);
+
+  in = line_end + 1;
 
   while(*in)
   {
     char* key_start;
-    char* line_end;
     char* key_end;
     char* value_start;
+    char* domain_end;
 
     key_start = in;
 
@@ -281,19 +312,13 @@ main(int argc, char** argv)
     {
       logdir = value_start;
     }
-    else
+    else if(0 != (domain_end = strchr(key_start, ';')))
     {
-      char* domain_end;
       char* host_start;
       char* host_end;
       char* graph_start;
       char* graph_end;
       char* graph_key;
-
-      domain_end = strchr(key_start, ';');
-
-      if(!domain_end)
-        errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a ; character in key", lineno, DATA_FILE);
 
       host_start = domain_end + 1;
       *domain_end = 0;
@@ -312,10 +337,8 @@ main(int argc, char** argv)
       else if(!strcmp(graph_start, "address"))
       {
       }
-      else
+      else if(0 != (graph_end = strchr(graph_start, '.')))
       {
-        graph_end = strchr(graph_start, '.');
-
         if(!graph_end)
           errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a . character after graph name", lineno, DATA_FILE);
 
@@ -346,17 +369,15 @@ main(int argc, char** argv)
           graphs[graph].period = value_start;
         else if(!strcmp(graph_key, "graph_total"))
           graphs[graph].total = value_start;
-        else
+        else if(strchr(graph_key, '.'))
         {
           char* curve_start;
           char* curve_end;
 
           curve_start = graph_key;
           graph_key = strchr(curve_start, '.');
-          *graph_key++ = 0;
 
-          if(!graph_key)
-            errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a . character after curve name", lineno, DATA_FILE);
+          *graph_key++ = 0;
 
           curve = curve_index(&graphs[graph], curve_start);
 
@@ -378,7 +399,7 @@ main(int argc, char** argv)
             graphs[graph].curves[curve].max = strtod(value_start, 0);
           else if(!strcmp(graph_key, "min"))
             graphs[graph].curves[curve].min = strtod(value_start, 0);
-          else if(!strcmp(graph_key, "warning"))
+          else if(!strcmp(graph_key, "warning") || !strcmp(graph_key, "warn"))
             graphs[graph].curves[curve].warning = strtod(value_start, 0);
           else if(!strcmp(graph_key, "critical"))
             graphs[graph].curves[curve].critical = strtod(value_start, 0);
@@ -387,8 +408,12 @@ main(int argc, char** argv)
             fprintf(stderr, "Mediator: %s  Host: %s  Graph: %s  Curve: %s  Key: %s  Value: %s\n", key_start, host_start, graph_start, curve_start, graph_key, value_start);
           }
         }
+        else
+          fprintf(stderr, "Skipping unknown graph key '%s'\n", graph_key);
       }
     }
+    else
+      fprintf(stderr, "Skipping unknown key '%s'\n", key_start);
 
     in = line_end + 1;
     ++lineno;
@@ -417,6 +442,12 @@ main(int argc, char** argv)
       if(-1 == asprintf(&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, g->domain, g->host, g->name, c->name, suffix))
         errx(EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror(errno));
 
+      if(-1 == access(c->path, R_OK))
+      {
+        fprintf(stderr, "Don't have %s\n", c->path);
+        goto no_graph;
+      }
+
       rrd_parse(&c->data, c->path);
     }
 
@@ -426,6 +457,8 @@ main(int argc, char** argv)
     do_graph(g, 6, "week");
     do_graph(g, 24, "month");
     do_graph(g, 288, "year");
+
+no_graph:
 
     for(curve = 0; curve < g->curve_count; ++curve)
       rrd_free(&g->curves[curve].data);
@@ -638,6 +671,8 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 {
   size_t i, curve, ds = 0;
   int j;
+
+  fprintf(stderr, "%s %s %s\n", g->host, g->name, suffix);
 
   size_t visible_graph_count = 0;
 
