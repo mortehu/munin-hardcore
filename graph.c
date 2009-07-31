@@ -832,7 +832,7 @@ calc_step_size(double range, size_t graph_height)
 }
 
 void
-format_number(char* target, double number)
+number_format_args(double number, const char** format, const char** suffix, double* scale)
 {
   static const char* fmt[] = { "%.2f%s", "%.1f%s", "%.0f%s" };
 
@@ -840,7 +840,10 @@ format_number(char* target, double number)
 
   if(!number)
   {
-    strcpy(target, "0");
+    *format = "%.0f";
+    *suffix = "";
+    *scale = 1.0;
+
     return;
   }
 
@@ -855,7 +858,9 @@ format_number(char* target, double number)
     if(mag > sizeof(suffixes) / sizeof(suffixes[0]) - 1)
       mag = sizeof(suffixes) / sizeof(suffixes[0]) - 1;
 
-    sprintf(target, fmt[rad], number * pow(1000, mag + 1), suffixes[mag]);
+    *format = fmt[rad];
+    *suffix = suffixes[mag];
+    *scale = pow(1000, mag + 1);
   }
   else
   {
@@ -865,7 +870,9 @@ format_number(char* target, double number)
 
     if(!mag)
     {
-      sprintf(target, fmt[rad], number, "");
+      *format = fmt[rad];
+      *suffix = "";
+      *scale = 1.0;
     }
     else
     {
@@ -874,9 +881,23 @@ format_number(char* target, double number)
       if(mag > sizeof(suffixes) / sizeof(suffixes[0]))
         mag = sizeof(suffixes) / sizeof(suffixes[0]);
 
-      sprintf(target, fmt[rad], number * pow(1000.0, -mag), suffixes[mag - 1]);
+      *format = fmt[rad];
+      *scale = pow(1000.0, -mag);
+      *suffix = suffixes[mag - 1];
     }
   }
+}
+
+void
+format_number(char* target, double number)
+{
+  const char* format;
+  const char* suffix;
+  double scale;
+
+  number_format_args(number, &format, &suffix, &scale);
+
+  sprintf(target, format, number * scale, suffix);
 }
 
 void
@@ -912,7 +933,7 @@ const struct time_args time_args[] =
   { "%a %H:%M", 0, 43200, 3600 },
   { "%d", 0, 86400, 21600 },
   { "Week %V", 345600, 86400 * 7, 86400 },
-  { "%b", 0, -1, 0 },
+  { "%b", 0, 86400 * 30, 0 },
 };
 
 void
@@ -1153,18 +1174,27 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     font_draw(&canvas, (canvas.width - width) / 2, 20, buf, 0);
   }
 
-  for(j = min / step_size; j <= max / step_size; ++j)
   {
-    y = graph_height - (j * step_size - min) * (graph_height - 1) / (max - min) - 1;
+    const char* format;
+    const char* suffix;
+    double scale;
 
-    format_number(buf, j * step_size);
-    font_draw(&canvas, graph_x - 5, graph_y + y + 7, buf, -1);
+    number_format_args((fabs(max) > fabs(min)) ? fabs(max) : fabs(min), &format, &suffix, &scale);
 
-    if(!j)
-      continue;
+    for(j = min / step_size; j <= max / step_size; ++j)
+    {
+      y = graph_height - (j * step_size - min) * (graph_height - 1) / (max - min) - 1;
 
-    for(x = 0; x < graph_width; x += 2)
-      draw_pixel(&canvas, x + graph_x, y + graph_y, 0xc0c0c0);
+      sprintf(buf, format, (j * step_size) * scale, suffix);
+
+      font_draw(&canvas, graph_x - 5, graph_y + y + 7, buf, -1);
+
+      if(!j)
+        continue;
+
+      for(x = 0; x < graph_width; x += 2)
+        draw_pixel(&canvas, x + graph_x, y + graph_y, 0xc0c0c0);
+    }
   }
 
   struct tm tm_last_update;
@@ -1188,7 +1218,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         draw_vline(&canvas, graph_x + graph_width - j, graph_y, graph_y + graph_height, 0xffcccc);
         font_draw(&canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
       }
-      else if((prev_t - ta->bias) / ta->bar_interval != (t - ta->bias) / ta->bar_interval)
+      else if(ta->bar_interval && (prev_t - ta->bias) / ta->bar_interval != (t - ta->bias) / ta->bar_interval)
       {
         draw_vline(&canvas, graph_x + graph_width - j, graph_y, graph_y + graph_height, 0xeeeeee);
       }
