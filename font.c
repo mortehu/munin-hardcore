@@ -34,6 +34,52 @@ font_init()
     errx(EXIT_FAILURE, "Error setting size (%d pixels): %d", 10, result);
 }
 
+size_t
+font_width(const char* text)
+{
+  size_t width = 0;
+  int result;
+  FT_UInt idx;
+  FT_GlyphSlot slot;
+
+  while(*text)
+  {
+    unsigned int n, ch = *text++;
+
+    if(!(ch & 0x80))
+      n = 0;
+    else if((ch & 0xE0) == 0xC0)
+      ch &= 0x1F, n = 1;
+    else if((ch & 0xF0) == 0xE0)
+      ch &= 0x0F, n = 2;
+    else if((ch & 0xF8) == 0xF0)
+      ch &= 0x07, n = 3;
+    else if((ch & 0xFC) == 0xF8)
+      ch &= 0x03, n = 4;
+    else if((ch & 0xFE) == 0xFC)
+      ch &= 0x01, n = 5;
+
+    while(n-- && *text)
+      ch <<= 6, ch |= (*text++ & 0x3F);
+
+    idx = FT_Get_Char_Index(ft_face, ch);
+
+    if(!idx)
+      continue;
+
+    result = FT_Load_Glyph(ft_face, idx, FT_LOAD_NO_BITMAP);
+
+    if(result)
+      continue;
+
+    slot = ft_face->glyph;
+
+    width += slot->advance.x >> 6;
+  }
+
+  return width;
+}
+
 void
 font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direction)
 {
@@ -41,20 +87,43 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
   unsigned int stride;
   int result;
   FT_UInt idx;
-  FT_GlyphSlot slot = 0;
+  FT_GlyphSlot slot;
   size_t yy, xx;
+
+  if(direction == -1)
+    x -= font_width(text);
+  else if(direction == -2)
+    x -= font_width(text) >> 1;
 
   while(*text)
   {
-    idx = FT_Get_Char_Index(ft_face, *text);
+    unsigned int n, ch = *text++;
+
+    if(!(ch & 0x80))
+      n = 0;
+    else if((ch & 0xE0) == 0xC0)
+      ch &= 0x1F, n = 1;
+    else if((ch & 0xF0) == 0xE0)
+      ch &= 0x0F, n = 2;
+    else if((ch & 0xF8) == 0xF0)
+      ch &= 0x07, n = 3;
+    else if((ch & 0xFC) == 0xF8)
+      ch &= 0x03, n = 4;
+    else if((ch & 0xFE) == 0xFC)
+      ch &= 0x01, n = 5;
+
+    while(n-- && *text)
+      ch <<= 6, ch |= (*text++ & 0x3F);
+
+    idx = FT_Get_Char_Index(ft_face, ch);
 
     if(!idx)
-      return;
+      continue;
 
     result = FT_Load_Glyph(ft_face, idx, FT_LOAD_RENDER);
 
     if(result)
-      return;
+      continue;
 
     slot = ft_face->glyph;
 
@@ -63,6 +132,8 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
 
     switch(direction)
     {
+    case -2:
+    case -1:
     case 0:
 
       for(yy = 0; yy < slot->bitmap.rows; ++yy)
@@ -157,7 +228,5 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
 
       break;
     }
-
-    ++text;
   }
 }

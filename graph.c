@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <time.h>
 
 #include <unistd.h>
 
@@ -41,7 +42,7 @@ static const char* logdir = "/var/log/munin";
 #define DATA_FILE "/var/lib/munin/datafile"
 
 #define MAX_DIM 2048
-
+#define LINE_HEIGHT 14
 
 void
 rrd_parse(struct rrd* result, const char* filename)
@@ -458,10 +459,10 @@ main(int argc, char** argv)
 
     qsort(g->curves, g->curve_count, sizeof(struct curve), curve_name_cmp);
 
-    do_graph(g, 1, "day");
-    do_graph(g, 6, "week");
-    do_graph(g, 24, "month");
-    do_graph(g, 288, "year");
+    do_graph(g, 300, "day");
+    do_graph(g, 1800, "week");
+    do_graph(g, 7200, "month");
+    do_graph(g, 86400, "year");
 
 no_graph:
 
@@ -479,7 +480,8 @@ no_graph:
 
 struct curve_args
 {
-  double max;
+  double cur, max, min, avg;
+  double max_avg;
   int rra_min, rra_max, rra_avg;
   size_t rra_min_offset, rra_max_offset, rra_avg_offset;
   size_t negative;
@@ -672,10 +674,104 @@ calc_step_size(double range, size_t graph_height)
 }
 
 void
+format_number(char* target, double number)
+{
+  static const char* fmt[] = { "%.2f%s", "%.1f%s", "%.0f%s" };
+
+  int mag, rad;
+
+  if(!number)
+  {
+    strcpy(target, "0");
+    return;
+  }
+
+  if(fabs(number) < 1)
+  {
+    static const char* suffixes[] = { "m", "µ", "n", "p", "f", "a", "z", "y" };
+
+    mag = -floor(log(fabs(number)) / log(10) + 1);
+    rad = 2 - (mag % 3);
+    mag /= 3;
+
+    if(mag > sizeof(suffixes) / sizeof(suffixes[0]) - 1)
+      mag = sizeof(suffixes) / sizeof(suffixes[0]) - 1;
+
+    sprintf(target, fmt[rad], number * pow(1000, mag + 1), suffixes[mag]);
+  }
+  else
+  {
+    mag = floor(log(fabs(number)) / log(10));
+    rad = mag % 3;
+    mag /= 3;
+
+    if(!mag)
+    {
+      sprintf(target, fmt[rad], number, "");
+    }
+    else
+    {
+      static const char* suffixes[] = { "k", "M", "G", "T", "P", "E", "Z", "Y" };
+
+      if(mag > sizeof(suffixes) / sizeof(suffixes[0]))
+        mag = sizeof(suffixes) / sizeof(suffixes[0]);
+
+      sprintf(target, fmt[rad], number * pow(1000.0, -mag), suffixes[mag - 1]);
+    }
+  }
+}
+
+void
+print_number(struct canvas* canvas, size_t x, size_t y, double val)
+{
+  char buf[64];
+
+  format_number(buf, val);
+  font_draw(canvas, x, y, buf, -1);
+}
+
+void
+print_numbers(struct canvas* canvas, size_t x, size_t y, double neg, double pos)
+{
+  char buf[64];
+
+  format_number(buf, neg);
+  strcat(buf, "/");
+  format_number(strchr(buf, 0), pos);
+  font_draw(canvas, x, y, buf, -1);
+}
+
+struct time_args
+{
+  const char* format;
+  time_t bias;
+  time_t label_interval;
+  time_t bar_interval;
+};
+
+const struct time_args time_args[] =
+{
+  { "%a %H:%M", 0, 43200, 3600 },
+  { "%d", 0, 86400, 21600 },
+  { "Week %V", 345600, 86400 * 7, 86400 },
+  { "%b", 0, -1, 0 },
+};
+
+void
 do_graph(struct graph* g, size_t interval, const char* suffix)
 {
   size_t i, curve, ds = 0;
   int j;
+  time_t last_update = 0;
+  const struct time_args* ta;
+
+  for(i = 0; i + 1 < sizeof(time_args) / sizeof(time_args[0]); ++i)
+  {
+    if(time_args[i].bar_interval > interval * 10)
+      break;
+  }
+
+  ta = &time_args[i];
 
   fprintf(stderr, "%s %s %s\n", g->host, g->name, suffix);
 
@@ -689,12 +785,14 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     struct curve_args* ca = &cas[curve];
     size_t rra, offset = 0;
 
-    ca->max = 0.0;
+    if(c->data.live_header.last_up > last_update)
+      last_update = c->data.live_header.last_up;
+
     ca->rra_min = ca->rra_max = ca->rra_avg = -1;
 
     for(rra = 0; rra < c->data.header.rra_count; ++rra)
     {
-      if(c->data.rra_defs[rra].pdp_count != interval)
+      if(c->data.rra_defs[rra].pdp_count != interval / c->data.header.pdp_step)
       {
         offset += c->data.rra_defs[rra].row_count * c->data.header.ds_count;
 
@@ -723,13 +821,34 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     if(ca->rra_min == -1 || ca->rra_max == -1 || ca->rra_avg == -1)
       errx(EXIT_FAILURE, "Did not find all required rr-archivess in '%s'", c->path);
 
+    ca->cur = c->data.values[ca->rra_avg_offset + c->data.rra_ptrs[ca->rra_avg] * c->data.header.ds_count];
+    ca->max_avg = ca->cur;
+    ca->min = ca->cur;
+    ca->max = ca->cur;
+    ca->avg = 0.0;
+
     for(i = 0; i < c->data.rra_defs[ca->rra_avg].row_count; ++i)
     {
-      double value = c->data.values[ca->rra_avg_offset + i * c->data.header.ds_count];
+      double avg = c->data.values[ca->rra_avg_offset + i * c->data.header.ds_count];
+      double min = c->data.values[ca->rra_min_offset + i * c->data.header.ds_count];
+      double max = c->data.values[ca->rra_max_offset + i * c->data.header.ds_count];
 
-      if(value > ca->max)
-        ca->max = value;
+      if(!isnan(avg))
+      {
+        ca->avg += avg;
+
+        if(avg > ca->max_avg)
+          ca->max_avg = avg;
+      }
+
+      if(max > ca->max)
+        ca->max = max;
+
+      if(min < ca->min)
+        ca->min = min;
     }
+
+    ca->avg /= c->data.rra_defs[ca->rra_avg].row_count;
 
     if(!c->nograph)
       ++visible_graph_count;
@@ -752,6 +871,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   }
 
   double min = 0, max = 0;
+  int has_negative = 0;
 
   for(curve = 0; curve < g->curve_count; ++curve)
   {
@@ -761,23 +881,25 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     if(c->nograph)
       continue;
 
-    if(ca->max > max)
-      max = ca->max;
+    if(ca->max_avg > max)
+      max = ca->max_avg;
 
     if(c->negative)
     {
-      if(-cas[ca->negative].max < min)
-        min = -cas[ca->negative].max;
+      if(-cas[ca->negative].max_avg < min)
+        min = -cas[ca->negative].max_avg;
+
+      has_negative = 1;
     }
   }
 
-  char* png_path;
   struct canvas canvas;
 
   size_t graph_width, graph_height;
   size_t graph_x = 60, graph_y = 30;
 
-  size_t x, y;
+  size_t x, y, width;
+  char buf[256];
 
   graph_width = g->width ? g->width : 400;
   graph_height = g->height ? g->height : 175;
@@ -785,26 +907,39 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   if(graph_width > MAX_DIM || graph_height > MAX_DIM)
     errx(EXIT_FAILURE, "Graph dimensions %zux%zu are too big", graph_width, graph_height);
 
-  canvas.width = graph_width + 100;
-  canvas.height = graph_height + 100 + visible_graph_count * 15;
+  canvas.width = graph_width + 95;
+  canvas.height = graph_height + 75 + visible_graph_count * LINE_HEIGHT;
+
+  if(g->total)
+    canvas.height += LINE_HEIGHT;
 
   canvas.data = malloc(3 * canvas.width * canvas.height);
-  memset(canvas.data, 0xee, 3 * canvas.width * canvas.height);
+  memset(canvas.data, 0xcc, 3 * canvas.width);
+  memset(canvas.data + 3 * canvas.width, 0xf5, 3 * canvas.width * (canvas.height - 2));
+  memset(canvas.data + (canvas.height - 1) * canvas.width * 3, 0x77, 3 * canvas.width);
+  draw_line(&canvas, 0, 0, 0, canvas.height, 0xcccccc);
+  draw_line(&canvas, canvas.width - 1, 0, canvas.width - 1, canvas.height, 0x777777);
 
   draw_rect(&canvas, graph_x, graph_y, graph_width, graph_height, 0xffffff);
 
   double step_size = calc_step_size(max - min, graph_height);
   size_t graph_index = 0;
 
+  if(g->title)
+  {
+    snprintf(buf, sizeof(buf), "%s - by %s", g->title, suffix);
+    buf[sizeof(buf) - 1] = 0;
+
+    width = font_width(buf);
+    font_draw(&canvas, (canvas.width - width) / 2, 20, buf, 0);
+  }
+
   for(j = min / step_size; j <= max / step_size; ++j)
   {
-    char buf[32];
-
     y = graph_height - (j * step_size - min) * (graph_height - 1) / (max - min) - 1;
 
-    sprintf(buf, "%.0f", j * step_size);
-
-    font_draw(&canvas, 5, graph_y + y, buf, 0);
+    format_number(buf, j * step_size);
+    font_draw(&canvas, graph_x - 5, graph_y + y + 7, buf, -1);
 
     if(!j)
       continue;
@@ -813,12 +948,77 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
       draw_pixel(&canvas, x + graph_x, y + graph_y, 0xc0c0c0);
   }
 
-  y = graph_y + graph_height + 20;
+  struct tm tm_last_update;
+  localtime_r(&last_update, &tm_last_update);
 
-  font_draw(&canvas, canvas.width - 14, 5, "Munin Hardcore / Morten Hustveit", 1);
+  time_t t = last_update + tm_last_update.tm_gmtoff;
+  time_t prev_t = t;
+
+  for(j = 0; j < graph_width; ++j)
+  {
+    if(ta->label_interval > 0)
+    {
+      if((prev_t - ta->bias) / ta->label_interval != (t - ta->bias) / ta->label_interval)
+      {
+        struct tm tm_tmp;
+
+        gmtime_r(&prev_t, &tm_tmp);
+
+        strftime(buf, sizeof(buf), ta->format, &tm_tmp);
+
+        draw_line(&canvas, graph_x + graph_width - j, graph_y, graph_x + graph_width - j, graph_y + graph_height, 0xffcccc);
+        font_draw(&canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
+      }
+      else if((prev_t - ta->bias) / ta->bar_interval != (t - ta->bias) / ta->bar_interval)
+      {
+        draw_line(&canvas, graph_x + graph_width - j, graph_y, graph_x + graph_width - j, graph_y + graph_height, 0xeeeeee);
+      }
+    }
+
+    prev_t = t;
+    t -= interval;
+  }
+
+  strftime(buf, sizeof(buf), "Last update: %Y-%m-%d %H:%M:%S %Z", &tm_last_update);
+  font_draw(&canvas, canvas.width - 5, canvas.height - 3, buf, -1);
+
+  font_draw(&canvas, canvas.width - 15, 5, "Munin Hardcore / Morten Hustveit", 1);
 
   if(g->vlabel)
-    font_draw(&canvas, 14, graph_y + graph_height, g->vlabel, 2);
+  {
+    const char* i = g->vlabel;
+    char* o = buf;
+    char* o_end = buf + sizeof(buf) - 1;
+
+    while(*i && o != o_end)
+    {
+      if(*i == '$')
+      {
+        if(!strncmp(i, "${graph_period}", 15))
+        {
+          if(o + 6 < o_end)
+          {
+            memcpy(o, "second", 7);
+            o += 6;
+          }
+          i += 15;
+        }
+        else
+          *o++ = *i++;
+      }
+      else
+        *o++ = *i++;
+    }
+
+    *o = 0;
+
+    width = font_width(buf);
+    font_draw(&canvas, 14, graph_y + graph_height / 2 + width / 2, buf, 2);
+  }
+
+  size_t max_label_width = 0;
+
+  y = graph_y + graph_height + 20 + LINE_HEIGHT;
 
   for(curve = 0; curve < g->curve_count; ++curve)
   {
@@ -828,6 +1028,12 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
     if(c->nograph)
       continue;
+
+    const char* label = c->label ? c->label : c->name;
+    size_t label_width = font_width(label);
+
+    if(label_width > max_label_width)
+      max_label_width = label_width;
 
     color = colors[graph_index % sizeof(colors)];
 
@@ -845,12 +1051,94 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     font_draw(&canvas, 22, y + 9, c->label ? c->label : c->name, 0);
 
     ++graph_index;
-    y += 15;
+    y += LINE_HEIGHT;
+  }
+
+  if(g->total)
+  {
+    size_t label_width = font_width(g->total);
+
+    if(label_width > max_label_width)
+      max_label_width = label_width;
+
+    font_draw(&canvas, 22, y + 9, g->total, 0);
+  }
+
+  y = graph_y + graph_height + 20;
+  x = 22 + max_label_width + 10;
+
+  size_t column_width = (canvas.width - x - 20) / 4;
+
+  font_draw(&canvas, x + column_width * 1, y + 9, has_negative ? "Cur (-/+)" : "Cur", -1);
+  font_draw(&canvas, x + column_width * 2, y + 9, has_negative ? "Min (-/+)" : "Min", -1);
+  font_draw(&canvas, x + column_width * 3, y + 9, has_negative ? "Avg (-/+)" : "Avg", -1);
+  font_draw(&canvas, x + column_width * 4, y + 9, has_negative ? "Max (-/+)" : "Max", -1);
+  y += LINE_HEIGHT;
+
+  struct curve_args totals[2];
+  memset(&totals, 0, sizeof(totals));
+
+  for(curve = 0; curve < g->curve_count; ++curve)
+  {
+    struct curve* c = &g->curves[curve];
+    struct curve_args* ca = &cas[curve];
+
+    if(c->nograph)
+      continue;
+
+    if(c->negative)
+    {
+      struct curve_args* nca = &cas[ca->negative];
+
+      print_numbers(&canvas, x + column_width * 1, y + 9, nca->cur, ca->cur);
+      print_numbers(&canvas, x + column_width * 2, y + 9, nca->min, ca->min);
+      print_numbers(&canvas, x + column_width * 3, y + 9, nca->avg, ca->avg);
+      print_numbers(&canvas, x + column_width * 4, y + 9, nca->max, ca->max);
+
+      totals[1].cur += nca->cur;
+      totals[1].min += nca->min;
+      totals[1].avg += nca->avg;
+      totals[1].max += nca->max;
+    }
+    else
+    {
+      print_number(&canvas, x + column_width * 1, y + 9, ca->cur);
+      print_number(&canvas, x + column_width * 2, y + 9, ca->min);
+      print_number(&canvas, x + column_width * 3, y + 9, ca->avg);
+      print_number(&canvas, x + column_width * 4, y + 9, ca->max);
+    }
+
+    totals[0].cur += ca->cur;
+    totals[0].min += ca->min;
+    totals[0].avg += ca->avg;
+    totals[0].max += ca->max;
+
+    y += LINE_HEIGHT;
+  }
+
+  if(g->total)
+  {
+    if(has_negative)
+    {
+      print_numbers(&canvas, x + column_width * 1, y + 9, totals[1].cur, totals[0].cur);
+      print_numbers(&canvas, x + column_width * 2, y + 9, totals[1].min, totals[0].min);
+      print_numbers(&canvas, x + column_width * 3, y + 9, totals[1].avg, totals[0].avg);
+      print_numbers(&canvas, x + column_width * 4, y + 9, totals[1].max, totals[0].max);
+    }
+    else
+    {
+      print_number(&canvas, x + column_width * 1, y + 9, totals[0].cur);
+      print_number(&canvas, x + column_width * 2, y + 9, totals[0].min);
+      print_number(&canvas, x + column_width * 3, y + 9, totals[0].avg);
+      print_number(&canvas, x + column_width * 4, y + 9, totals[0].max);
+    }
   }
 
   y = graph_height + min * (graph_height - 1) / (max - min) - 1;
 
   draw_line(&canvas, graph_x, y + graph_y, graph_x + graph_width - 1, y + graph_y, 0);
+
+  char* png_path;
 
   asprintf(&png_path, "graphs/%s-%s-%s.png", g->host, g->name, suffix);
 
