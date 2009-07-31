@@ -1,16 +1,6 @@
 #include <alloca.h>
 #include <png.h>
 
-static void
-png_error_fn(png_structp png, png_const_charp message)
-{
-}
-
-static void
-png_warning_fn(png_structp png, png_const_charp message)
-{
-}
-
 int
 write_png(const char *file_name, size_t width, size_t height, unsigned char* data)
 {

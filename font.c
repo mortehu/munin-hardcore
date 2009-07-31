@@ -1,3 +1,4 @@
+#include <err.h>
 #include <math.h>
 #include <wchar.h>
 
@@ -83,8 +84,6 @@ font_width(const char* text)
 void
 font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direction)
 {
-  unsigned char alpha_image[1024];
-  unsigned int stride;
   int result;
   FT_UInt idx;
   FT_GlyphSlot slot;
