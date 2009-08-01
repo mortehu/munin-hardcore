@@ -9,6 +9,8 @@
 #include <string.h>
 #include <time.h>
 
+#include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include "types.h"
@@ -269,6 +271,12 @@ main(int argc, char** argv)
   size_t lineno = 2;
   size_t graph, curve;
 
+  FILE* stats = fopen("/var/lib/munin/munin-graph.stats", "w");
+
+  struct timeval total_start, total_end;
+
+  gettimeofday(&total_start, 0);
+
   font_init();
 
   if(!(f = fopen(DATA_FILE, "r")))
@@ -466,9 +474,14 @@ main(int argc, char** argv)
     ++lineno;
   }
 
+  struct timeval graph_start, graph_end;
+  gettimeofday(&graph_end, 0);
+
   for(graph = 0; graph < graph_count; ++graph)
   {
     struct graph* g = &graphs[graph];
+
+    graph_start = graph_end;
 
     for(curve = 0; curve < g->curve_count; ++curve)
     {
@@ -476,7 +489,7 @@ main(int argc, char** argv)
 
       int suffix;
 
-      if(!c->type || !strcasecmp(c->type, "gauge"))
+          if(!c->type || !strcasecmp(c->type, "gauge"))
         suffix = 'g';
       else if(!strcasecmp(c->type, "derive"))
         suffix = 'd';
@@ -505,12 +518,28 @@ main(int argc, char** argv)
     do_graph(g, 7200, "month");
     do_graph(g, 86400, "year");
 
+    gettimeofday(&graph_end, 0);
+
+    if(stats)
+      fprintf(stats, "GS|%s|%s|%s|%.3f\n", g->domain, g->host, g->name,
+              graph_end.tv_sec - graph_start.tv_sec + (graph_end.tv_usec - graph_start.tv_usec) * 1.0e-6);
+
 no_graph:
 
     for(curve = 0; curve < g->curve_count; ++curve)
       rrd_free(&g->curves[curve].data);
 
     free(g->curves);
+  }
+
+  if(stats)
+  {
+    gettimeofday(&total_end, 0);
+
+    fprintf(stats, "GT|total|%.3f\n",
+            total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) * 1.0e-6);
+
+    fclose(stats);
   }
 
   free(graphs);
@@ -942,6 +971,28 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   time_t last_update = 0;
   size_t i, curve, ds = 0;
   int j;
+
+  char* png_path;
+
+  asprintf(&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
+
+  struct stat png_stat;
+
+  if(interval > 300 && 0 == stat(png_path, &png_stat))
+  {
+    for(curve = 0; curve < g->curve_count; ++curve)
+    {
+      if(g->curves[curve].data.live_header.last_up / interval != png_stat.st_mtime / interval)
+        break;
+    }
+
+    if(curve == g->curve_count)
+    {
+      free(png_path);
+
+      return;
+    }
+  }
 
   int has_negative = 0, draw_min_max = 0;
 
@@ -1433,10 +1484,6 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   y = graph_height + min * (graph_height - 1) / (max - min) - 1;
 
   draw_line(&canvas, graph_x, y + graph_y, graph_x + graph_width - 1, y + graph_y, 0);
-
-  char* png_path;
-
-  asprintf(&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
 
   write_png(png_path, canvas.width, canvas.height, canvas.data);
 
