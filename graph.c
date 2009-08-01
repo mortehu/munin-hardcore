@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
@@ -31,6 +32,12 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
 
 void
 do_graph(struct graph* g, size_t interval, const char* suffix);
+
+void
+draw_vline(struct canvas* canvas, int x, int y0, int y1, uint32_t color);
+
+void
+draw_rect(struct canvas* canvas, size_t x, size_t y, size_t width, size_t height, uint32_t color);
 
 static const uint32_t colors[] =
 {
@@ -270,12 +277,161 @@ graph_cmp(const void* plhs, const void* prhs)
   const struct graph* rhs = prhs;
   int result;
 
-  result = strcmp(lhs->domain, rhs->domain);
-
-  if(result)
+  if(0 != (result = strcmp(lhs->domain, rhs->domain)))
     return result;
 
   return strcmp(lhs->name, rhs->name);
+}
+
+struct curve_reference
+{
+  size_t host_index;
+  struct curve* c;
+
+  struct curve_reference* next;
+};
+
+struct curve_def
+{
+  const char* graph;
+  const char* curve;
+
+  struct curve_reference* first;
+};
+
+int
+curve_def_cmp(const void* plhs, const void* prhs)
+{
+  const struct curve_def* lhs = plhs;
+  const struct curve_def* rhs = prhs;
+  int result;
+
+  if(0 != (result = strcmp(lhs->graph, rhs->graph)))
+    return result;
+
+  return strcmp(lhs->curve, rhs->curve);
+}
+
+void
+do_overview_plot()
+{
+  size_t i, graph, curve, x = 0, y = 15;
+  size_t line_count = 0;
+  size_t host_count = 0;
+
+  struct curve_def* curve_defs = 0;
+  size_t curve_def_count = 0;
+  size_t curve_def_alloc = 0;
+
+  for(graph = 0; graph < graph_count; ++graph)
+  {
+    struct graph* g = &graphs[graph];
+
+    if(!graph
+    || strcmp(g->domain, (g - 1)->domain)
+    || strcmp(g->host, (g - 1)->host))
+      ++host_count;
+
+    if(curve_def_count + g->curve_count > curve_def_alloc)
+    {
+      curve_def_alloc = curve_def_alloc * 4 / 3 + g->curve_count;
+      curve_defs = realloc(curve_defs, sizeof(struct curve_def) * curve_def_alloc);
+    }
+
+    for(curve = 0; curve < g->curve_count; ++curve)
+    {
+      struct curve* c = &g->curves[curve];
+      struct curve_reference* ref = malloc(sizeof(struct curve_reference));
+
+      ref->host_index = host_count - 1;
+      ref->c = c;
+      ref->next = 0;
+
+      curve_defs[curve_def_count].graph = g->title ? g->title : g->name;
+      curve_defs[curve_def_count].curve = c->label ? c->label : c->name;
+      curve_defs[curve_def_count].first = ref;
+
+      ++curve_def_count;
+    }
+  }
+
+  qsort(curve_defs, curve_def_count, sizeof(struct curve_def), curve_def_cmp);
+
+  for(curve = 0; curve + 1 < curve_def_count; )
+  {
+    if(!strcmp(curve_defs[curve].graph, curve_defs[curve + 1].graph))
+    {
+      if(!strcmp(curve_defs[curve].curve, curve_defs[curve + 1].curve))
+      {
+        curve_defs[curve].first->next = curve_defs[curve + 1].first;
+        curve_defs[curve + 1].first = curve_defs[curve].first;
+
+        --curve_def_count;
+        memmove(&curve_defs[curve], &curve_defs[curve + 1], sizeof(struct curve) * (curve_def_count - curve));
+      }
+      else
+        ++curve, ++line_count;
+    }
+    else
+      ++curve, line_count += 2;
+  }
+
+  struct canvas canvas;
+
+  canvas.width = 200 + host_count * 80;
+  canvas.height = line_count * LINE_HEIGHT + 30;
+
+  canvas.data = malloc(3 * canvas.width * canvas.height);
+  memset(canvas.data, 0xcc, 3 * canvas.width);
+  memset(canvas.data + 3 * canvas.width, 0xf5, 3 * canvas.width * (canvas.height - 2));
+  memset(canvas.data + (canvas.height - 1) * canvas.width * 3, 0x77, 3 * canvas.width);
+  draw_vline(&canvas, 0, 0, canvas.height - 1, 0xcccccc);
+  draw_vline(&canvas, canvas.width - 1, 0, canvas.height - 1, 0x777777);
+
+  x = 200, y = 15;
+
+  for(graph = 0; graph < graph_count; ++graph)
+  {
+    struct graph* g = &graphs[graph];
+
+    if(!graph
+    || strcmp(g->domain, (g - 1)->domain)
+    || strcmp(g->host, (g - 1)->host))
+    {
+      font_draw(&canvas, x + 40, y, g->host, -2);
+      x += 80;
+    }
+  }
+
+  x = 5, y = 30;
+
+  for(i = 0; i < curve_def_count; ++i)
+  {
+    struct curve_def* d = &curve_defs[i];
+    struct curve_reference* ref = d->first;
+
+    if(!i || strcmp(d->graph, (d - 1)->graph))
+    {
+      draw_rect(&canvas, x + 1, y - LINE_HEIGHT, canvas.width - 2, LINE_HEIGHT, 0xeeeeee);
+      font_draw(&canvas, x, y, d->graph, 0);
+      y += LINE_HEIGHT;
+    }
+
+    font_draw(&canvas, x + 10, y, d->curve, 0);
+
+    while(ref)
+    {
+      font_draw(&canvas, 280 + ref->host_index * 80, y, "Hest", -1);
+
+      ref = ref->next;
+    }
+
+    y += LINE_HEIGHT;
+  }
+
+  write_png("overview.png", canvas.width, canvas.height, canvas.data);
+
+  free(canvas.data);
 }
 
 int
@@ -538,10 +694,12 @@ main(int argc, char** argv)
     graph_order = g->order;
     qsort(g->curves, g->curve_count, sizeof(struct curve), curve_name_cmp);
 
+#if 0
     do_graph(g, 300, "day");
     do_graph(g, 1800, "week");
     do_graph(g, 7200, "month");
     do_graph(g, 86400, "year");
+#endif
 
     gettimeofday(&graph_end, 0);
 
@@ -564,11 +722,16 @@ main(int argc, char** argv)
 
 no_graph:
 
+    ;
+    /*
     for(curve = 0; curve < g->curve_count; ++curve)
       rrd_free(&g->curves[curve].data);
 
     free(g->curves);
+      */
   }
+
+  do_overview_plot();
 
   if(stats)
   {
