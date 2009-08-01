@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
@@ -807,27 +806,23 @@ plot_min_max(struct canvas* canvas,
 
   struct rrd* data;
 
-  size_t min_rra, max_rra;
   size_t min_row_count, max_row_count;
   size_t min_skip, max_skip;
 
   data = &c->data;
 
-  min_rra = ca->rra_min;
-  max_rra = ca->rra_max;
-
-  min_row_count = data->rra_defs[min_rra].row_count;
-  max_row_count = data->rra_defs[max_rra].row_count;
+  min_row_count = data->rra_defs[ca->rra_min].row_count;
+  max_row_count = data->rra_defs[ca->rra_max].row_count;
 
   min_skip = min_row_count - width + 1;
   max_skip = max_row_count - width + 1;
 
   for(i = 0; i < min_row_count && i < max_row_count && x < width; ++i, ++x)
   {
-    double min_value = data->values[ca->rra_min_offset + ((i + min_skip + data->rra_ptrs[min_rra]) % min_row_count) * data->header.ds_count + ds];
-    double max_value = data->values[ca->rra_max_offset + ((i + max_skip + data->rra_ptrs[max_rra]) % max_row_count) * data->header.ds_count + ds];
+    double min_value = c->data.values[ca->rra_min_offset + ((i + min_skip + c->data.rra_ptrs[ca->rra_min]) % c->data.rra_defs[ca->rra_min].row_count) * c->data.header.ds_count + ds];
+    double max_value = c->data.values[ca->rra_max_offset + ((i + max_skip + c->data.rra_ptrs[ca->rra_max]) % c->data.rra_defs[ca->rra_max].row_count) * c->data.header.ds_count + ds];
 
-    if(isnan(min) || isnan(max))
+    if(isnan(min_value) || isnan(max_value))
       continue;
 
     if(flags & PLOT_NEGATIVE)
@@ -1123,9 +1118,9 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     ca->max = ca->cur;
     ca->avg = 0.0;
 
-    size_t avg_skip = c->data.rra_defs[ca->rra_avg].row_count - graph_width;
-    size_t min_skip = c->data.rra_defs[ca->rra_min].row_count - graph_width;
-    size_t max_skip = c->data.rra_defs[ca->rra_max].row_count - graph_width;
+    size_t avg_skip = c->data.rra_defs[ca->rra_avg].row_count - graph_width + 1;
+    size_t min_skip = c->data.rra_defs[ca->rra_min].row_count - graph_width + 1;
+    size_t max_skip = c->data.rra_defs[ca->rra_max].row_count - graph_width + 1;
 
     for(i = 0, x = 0; i < c->data.rra_defs[ca->rra_avg].row_count && x < graph_width; ++i, ++x)
     {
