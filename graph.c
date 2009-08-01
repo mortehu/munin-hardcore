@@ -264,6 +264,21 @@ curve_name_cmp(const void* plhs, const void* prhs)
 }
 
 int
+graph_cmp(const void* plhs, const void* prhs)
+{
+  const struct graph* lhs = plhs;
+  const struct graph* rhs = prhs;
+  int result;
+
+  result = strcmp(lhs->domain, rhs->domain);
+
+  if(result)
+    return result;
+
+  return strcmp(lhs->name, rhs->name);
+}
+
+int
 main(int argc, char** argv)
 {
   FILE* f;
@@ -273,6 +288,7 @@ main(int argc, char** argv)
   char* line_end;
   size_t lineno = 2;
   size_t graph, curve;
+  int debug = 0;
 
   FILE* stats = fopen("/var/lib/munin/munin-graph.stats", "w");
 
@@ -461,24 +477,28 @@ main(int argc, char** argv)
             graphs[graph].curves[curve].warning = strtod(value_start, 0);
           else if(!strcmp(graph_key, "critical"))
             graphs[graph].curves[curve].critical = strtod(value_start, 0);
-          else
-          {
+          else if(debug)
             fprintf(stderr, "Skipping unknown data source key '%s'\n", graph_key);
-          }
         }
-        else
+        else if(debug)
           fprintf(stderr, "Skipping unknown graph key '%s'\n", graph_key);
       }
+      else if(debug)
+        fprintf(stderr, "Skipping unknown host key '%s'\n", graph_start);
     }
-    else
-      fprintf(stderr, "Skipping unknown key '%s'\n", key_start);
+    else if(debug)
+      fprintf(stderr, "Skipping unknown global key '%s'\n", key_start);
 
     in = line_end + 1;
     ++lineno;
   }
 
+  qsort(graphs, graph_count, sizeof(struct graph), graph_cmp);
+
   struct timeval graph_start, graph_end;
+  struct timeval domain_start, domain_end;
   gettimeofday(&graph_end, 0);
+  domain_start = graph_end;
 
   for(graph = 0; graph < graph_count; ++graph)
   {
@@ -524,8 +544,21 @@ main(int argc, char** argv)
     gettimeofday(&graph_end, 0);
 
     if(stats)
+    {
       fprintf(stats, "GS|%s|%s|%s|%.3f\n", g->domain, g->host, g->name,
               graph_end.tv_sec - graph_start.tv_sec + (graph_end.tv_usec - graph_start.tv_usec) * 1.0e-6);
+
+      if(graph + 1 == graph_count
+      || strcmp(graphs[graph + 1].domain, graphs[graph].domain))
+      {
+        domain_end = graph_end;
+
+        fprintf(stats, "GD|%s|%.3f\n", g->domain,
+            domain_end.tv_sec - domain_start.tv_sec + (domain_end.tv_usec - domain_start.tv_usec) * 1.0e-6);
+
+        domain_start = domain_end;
+      }
+    }
 
 no_graph:
 
