@@ -1112,10 +1112,10 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     }
 
     ca->cur = c->data.values[ca->rra_avg_offset + c->data.rra_ptrs[ca->rra_avg] * c->data.header.ds_count];
-    ca->max_avg = ca->cur;
-    ca->min_avg = ca->cur;
-    ca->min = ca->cur;
-    ca->max = ca->cur;
+    ca->max_avg = 0.0;
+    ca->min_avg = 0.0;
+    ca->min = 0.0;
+    ca->max = 0.0;
     ca->avg = 0.0;
 
     size_t avg_skip = c->data.rra_defs[ca->rra_avg].row_count - graph_width + 1;
@@ -1128,28 +1128,28 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
       double min_value = c->data.values[ca->rra_min_offset + ((i + min_skip + c->data.rra_ptrs[ca->rra_min]) % c->data.rra_defs[ca->rra_min].row_count) * c->data.header.ds_count + ds];
       double max_value = c->data.values[ca->rra_max_offset + ((i + max_skip + c->data.rra_ptrs[ca->rra_max]) % c->data.rra_defs[ca->rra_max].row_count) * c->data.header.ds_count + ds];
 
-      if(isnan(avg_value))
-        continue;
-
-      if(area)
+      if(!isnan(avg_value))
       {
-        maxs[x] += avg_value;
+        if(area)
+        {
+          maxs[x] += avg_value;
 
-        if(maxs[x] > max)
-          max = maxs[x];
+          if(maxs[x] > max)
+            max = maxs[x];
+        }
+
+        ca->avg += avg_value;
+
+        if(avg_value > ca->max_avg)
+          ca->max_avg = avg_value;
+        else if(avg_value < ca->min_avg)
+          ca->min_avg = avg_value;
       }
 
-      ca->avg += avg_value;
-
-      if(avg_value > ca->max_avg)
-        ca->max_avg = avg_value;
-      else if(avg_value < ca->min_avg)
-        ca->min_avg = avg_value;
-
-      if(max_value > ca->max)
+      if(!isnan(max_value) && max_value > ca->max)
         ca->max = max_value;
 
-      if(min_value < ca->min)
+      if(!isnan(min_value) && min_value < ca->min)
         ca->min = min_value;
     }
 
