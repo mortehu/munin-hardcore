@@ -526,7 +526,9 @@ main(int argc, char** argv)
 
       if(-1 == access(c->path, R_OK))
       {
-        fprintf(stderr, "Don't have %s\n", c->path);
+        if(debug)
+          fprintf(stderr, "Don't have %s\n", c->path);
+
         goto no_graph;
       }
 
