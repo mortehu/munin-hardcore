@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
@@ -539,8 +538,6 @@ draw_vline(struct canvas* canvas, int x, int y0, int y1, uint32_t color)
     y1 = tmp;
   }
 
-  assert(y0 >= 0);
-
   while(y0 <= y1)
   {
     size_t i = (y0 * canvas->width + x) * 3;
@@ -699,7 +696,7 @@ plot_gauge(struct canvas* canvas,
   data_offset = ca->rra_avg_offset;
   row_count = data->rra_defs[rra].row_count;
 
-  skip = row_count - width;
+  skip = row_count - width + 1;
 
   for(i = 0; i < row_count && x < width; ++i, ++x)
   {
@@ -750,8 +747,8 @@ plot_min_max(struct canvas* canvas,
   min_row_count = data->rra_defs[min_rra].row_count;
   max_row_count = data->rra_defs[max_rra].row_count;
 
-  min_skip = min_row_count - width;
-  max_skip = max_row_count - width;
+  min_skip = min_row_count - width + 1;
+  max_skip = max_row_count - width + 1;
 
   for(i = 0; i < min_row_count && i < max_row_count && x < width; ++i, ++x)
   {
@@ -796,7 +793,7 @@ plot_area(struct canvas* canvas,
   data_offset = ca->rra_avg_offset;
   row_count = data->rra_defs[rra].row_count;
 
-  skip = row_count - width;
+  skip = row_count - width + 1;
 
   for(i = 0; i < row_count && x < width; ++i, ++x)
   {
@@ -804,8 +801,6 @@ plot_area(struct canvas* canvas,
 
     if(isnan(value))
       continue;
-
-    //assert(value <= max && value >= min);
 
     y0 = height - (maxs[x] - min) * (height - 1) / (max - min) - 1;
     y1 = height - ((value + maxs[x]) - min) * (height - 1) / (max - min) - 1;
@@ -1204,7 +1199,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   localtime_r(&last_update, &tm_last_update);
 
   time_t t = last_update + tm_last_update.tm_gmtoff;
-  time_t prev_t = t;
+  time_t prev_t = t + interval;
 
   for(j = 0; j < graph_width; ++j)
   {
@@ -1438,7 +1433,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   char* png_path;
 
-  asprintf(&png_path, "graphs/%s-%s-%s.png", g->host, g->name, suffix);
+  asprintf(&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
 
   write_png(png_path, canvas.width, canvas.height, canvas.data);
 
