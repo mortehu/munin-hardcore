@@ -543,12 +543,10 @@ main(int argc, char** argv)
     graph_order = g->order;
     qsort(g->curves, g->curve_count, sizeof(struct curve), curve_name_cmp);
 
-#if 0
     do_graph(g, 300, "day");
     do_graph(g, 1800, "week");
     do_graph(g, 7200, "month");
     do_graph(g, 86400, "year");
-#endif
 
     gettimeofday(&graph_end, 0);
 
@@ -571,13 +569,10 @@ main(int argc, char** argv)
 
 no_graph:
 
-    ;
-    /*
     for(curve = 0; curve < g->curve_count; ++curve)
       rrd_free(&g->curves[curve].data);
 
     free(g->curves);
-      */
   }
 
   if(stats)
