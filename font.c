@@ -15,7 +15,6 @@ FTC_CMapCache    ft_cmap_cache;
 FTC_SBitCache    ft_sbit_cache;
 FTC_ImageTypeRec ft_image_type;
 
-
 #define FONT_NAME "/usr/share/munin/VeraMono.ttf"
 #define FONT_CACHE_SIZE (1024 * 1024)
 

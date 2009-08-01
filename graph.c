@@ -929,12 +929,14 @@ struct time_args
   time_t bar_interval;
 };
 
+#define INTERVAL_MONTH -1
+
 const struct time_args time_args[] =
 {
   { "%a %H:%M", 0, 43200, 3600 },
   { "%d", 0, 86400, 21600 },
   { "Week %V", 345600, 86400 * 7, 86400 },
-  { "%b", 0, 86400 * 30, 0 },
+  { "%b", 0, INTERVAL_MONTH, 0 },
 };
 
 void
@@ -1224,6 +1226,21 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         draw_vline(&canvas, graph_x + graph_width - j, graph_y, graph_y + graph_height, 0xeeeeee);
       }
     }
+    else if(ta->label_interval == INTERVAL_MONTH)
+    {
+      struct tm a, b;
+
+      gmtime_r(&prev_t, &a);
+      gmtime_r(&t, &b);
+
+      if(a.tm_mon != b.tm_mon)
+      {
+        strftime(buf, sizeof(buf), ta->format, &a);
+
+        draw_vline(&canvas, graph_x + graph_width - j, graph_y, graph_y + graph_height, 0xffcccc);
+        font_draw(&canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
+      }
+    }
 
     prev_t = t;
     t -= interval;
@@ -1232,7 +1249,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   strftime(buf, sizeof(buf), "Last update: %Y-%m-%d %H:%M:%S %Z", &tm_last_update);
   font_draw(&canvas, canvas.width - 5, canvas.height - 3, buf, -1);
 
-  font_draw(&canvas, canvas.width - 15, 5, "Munin Hardcore / Morten Hustveit", 1);
+  font_draw(&canvas, canvas.width - 15, 5, "Munin Hardcore/Morten Hustveit", 1);
 
   if(g->vlabel)
   {
