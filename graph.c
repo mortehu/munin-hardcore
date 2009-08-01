@@ -244,18 +244,21 @@ curve_name_cmp(const void* plhs, const void* prhs)
   const struct curve* lhs = plhs;
   const struct curve* rhs = prhs;
 
-  const char* a = strword(graph_order, lhs->name);
-  const char* b = strword(graph_order, rhs->name);
-
-  if(a)
+  if(graph_order)
   {
-    if(!b)
-      return -1;
-    else
-      return a - b;
+    const char* a = strword(graph_order, lhs->name);
+    const char* b = strword(graph_order, rhs->name);
+
+    if(a)
+    {
+      if(!b)
+        return -1;
+      else
+        return a - b;
+    }
+    else if(b)
+      return 1;
   }
-  else if(b)
-    return 1;
 
   return strcmp(lhs->name, rhs->name);
 }
