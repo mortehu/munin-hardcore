@@ -1393,6 +1393,11 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     }
     else
     {
+      if(c->critical && ca->cur > c->critical)
+        draw_rect(&canvas, x, y - 4, column_width + 2, LINE_HEIGHT, 0xff7777);
+      else if(c->warning && ca->cur > c->warning)
+        draw_rect(&canvas, x, y - 4, column_width + 2, LINE_HEIGHT, 0xffff77);
+
       print_number(&canvas, x + column_width * 1, y + 9, ca->cur);
       print_number(&canvas, x + column_width * 2, y + 9, ca->min);
       print_number(&canvas, x + column_width * 3, y + 9, ca->avg);
