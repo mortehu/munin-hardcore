@@ -452,7 +452,7 @@ main(int argc, char** argv)
             graphs[graph].curves[curve].critical = strtod(value_start, 0);
           else
           {
-            fprintf(stderr, "Mediator: %s  Host: %s  Graph: %s  Curve: %s  Key: %s  Value: %s\n", key_start, host_start, graph_start, curve_start, graph_key, value_start);
+            fprintf(stderr, "Skipping unknown data source key '%s'\n", graph_key);
           }
         }
         else
@@ -944,8 +944,6 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   int j;
 
   int has_negative = 0, draw_min_max = 0;
-
-  fprintf(stderr, "%s %s %s\n", g->host, g->name, suffix);
 
   for(i = 0; i + 1 < sizeof(time_args) / sizeof(time_args[0]); ++i)
   {
