@@ -34,7 +34,8 @@ do_graph(struct graph* g, size_t interval, const char* suffix);
 static const uint32_t colors[] =
 {
   0x21fb21, 0x0022ff, 0xff0000, 0x00aaaa, 0xff00ff, 0xffa500, 0xcc0000,
-  0x0000cc, 0x0080c0, 0x8080c0, 0xff0080, 0x800080, 0x688e23
+  0x0000cc, 0x0080c0, 0x8080c0, 0xff0080, 0x800080, 0x688e23, 0x408080,
+  0x808000, 0x000000
 };
 
 static struct graph* graphs;
@@ -1287,7 +1288,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
       if(label_width > max_label_width)
         max_label_width = label_width;
 
-      color = colors[graph_index % sizeof(colors)];
+      color = colors[graph_index % (sizeof(colors) / sizeof(colors[0]))];
 
       if(!c->draw || !strcasecmp(c->draw, "line2"))
       {
@@ -1321,7 +1322,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         plot_area(&canvas, c, ca, maxs, graph_x, graph_y, graph_width, graph_height, min, max, ds, color);
       }
 
-      draw_rect(&canvas, 10, y,  6, 6, color);
+      draw_rect(&canvas, 10, y,  6, 6, draw_min_max ? ((color >> 1) & 0x7f7f7f) : color);
       draw_line(&canvas,  9, y - 1, 17, y - 1, 0);
       draw_line(&canvas,  9, y + 6, 17, y + 6, 0);
       draw_vline(&canvas,  9, y, y + 6, 0);

@@ -2,8 +2,6 @@
 #include <math.h>
 #include <wchar.h>
 
-#include <X11/extensions/Xrender.h>
-
 #include <ft2build.h>
 #include FT_FREETYPE_H
 
@@ -45,7 +43,7 @@ font_width(const char* text)
 
   while(*text)
   {
-    unsigned int n, ch = *text++;
+    unsigned int n = 0, ch = *text++;
 
     if(!(ch & 0x80))
       n = 0;
@@ -96,7 +94,7 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
 
   while(*text)
   {
-    unsigned int n, ch = *text++;
+    unsigned int n = 0, ch = *text++;
 
     if(!(ch & 0x80))
       n = 0;
