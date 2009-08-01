@@ -1,0 +1,43 @@
+#!/bin/sh
+#
+# Script to monitor disk usage.
+#
+# By chlunde and mortehu 2006
+
+#%# family=auto
+#%# capabilities=autoconf
+
+if [ "$1" = "autoconf" ]
+then
+	echo yes
+	exit 0
+elif [ "$1" = "config" ]
+then
+	echo 'graph_title Filesystem usage (in %)'
+	echo 'graph_args --upper-limit 100 -l 0'
+	echo 'graph_vlabel %'
+	echo 'graph_category disk'
+	echo 'graph_info This graph shows disk usage on the machine.'
+	df -T -P -l -x none -x unknown -x udf -x iso9660 -x romfs -x ramfs | sort | awk '
+	! /^tmpfs/ { 
+		n = $1
+		gsub(/[.-\\/]/, "_", n)
+	}
+	/^tmpfs/ {
+		n = "tmpfs" $7
+		gsub(/[.-\\/]/, "_", n)
+	}
+	! /^Filesystem/ {
+		print n ".label " $7
+		print n ".info " $7 " (" $2 ") -> " $1
+		print n ".warning 92"
+		print n ".critical 98"
+	}'
+else
+	df -T -P -l -x none -x unknown -x udf -x iso9660 -x romfs -x ramfs | sed \
+		-e '1d' \
+		-e '/\/\//d' \
+		-e 's/[.-\/]/_/g' \
+		-e 's/\([^ \t]\+\)\([ \t]*tmpfs.*\)[ \t]\([^ \t]\+\)/\1\3 \2/' \
+		-e 's/ .* \([0-9]\+\)%.*/.value \1/'
+fi

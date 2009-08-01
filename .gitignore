@@ -12,3 +12,4 @@ core
 core.*
 vgcore.*
 munin-hardcore-graph
+munin-hardcore-node

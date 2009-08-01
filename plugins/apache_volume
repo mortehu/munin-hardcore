@@ -1,0 +1,44 @@
+#!/bin/sh
+#
+# Plugin to monitor the volume of data sent from Apache servers. It handles
+# a list of ports passed in from a plugin configuration file.
+#
+# By chlunde and mortehu 2006
+
+#%# family=auto
+#%# capabilities=autoconf
+
+[ -z "$ports" ] && ports=80
+[ -z "$url" ] && url='http://127.0.0.1:%d/server-status?auto'
+
+if [ "$1" = "autoconf" ]
+then
+	test -x "`which wget`" || { echo no; exit 1; }
+	for port in $ports
+	do
+		wget -q "`printf $url $port`" -O /dev/null || { echo "no (botched port $port)"; exit 1; }
+	done
+	echo yes
+elif [ "$1" = "config" ]
+then
+	echo 'graph_title Apache volume'
+	echo 'graph_args --base 1000'
+	echo 'graph_vlabel bytes per \${graph_period}'
+	echo 'graph_category apache'
+
+	for port in $ports
+	do
+		echo volume$port.label port $port
+		echo volume$port.type DERIVE
+		echo volume$port.max 1000000000
+		echo volume$port.min 0
+	done
+else
+	for port in $ports
+	do
+    URL="`printf $url $port`"
+		VALUE=`wget -q "$URL" -O- | sed "/Total kBytes/!d;s/.*: //"`
+    echo -n "volume$port.value "
+    [ -z "$VALUE" ] && echo U ||  expr $VALUE \* 1024
+	done
+fi
