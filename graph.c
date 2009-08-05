@@ -703,7 +703,7 @@ number_format_args(double number, const char** format, const char** suffix, doub
 
       if(mag > sizeof(suffixes) / sizeof(suffixes[0]))
       {
-        sprintf(suffix_buf, "E%u", mag * 3);
+        sprintf(suffix_buf, "E+%u", mag * 3);
         *suffix = suffix_buf;
       }
       else
