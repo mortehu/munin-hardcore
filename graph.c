@@ -251,7 +251,7 @@ main(int argc, char** argv)
 
     case 'v':
 
-      printf("%s-graph\n", PACKAGE_STRING);
+      printf("%s-graph %s\n", PACKAGE_NAME, PACKAGE_VERSION);
       printf("Copyright © 2009 Morten Hustveit\n"
           "This is free software.  You may redistribute copies of it under the terms of\n"
           "the GNU General Public License <http://www.gnu.org/licenses/gpl.html>.\n"
