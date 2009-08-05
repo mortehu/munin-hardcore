@@ -23,7 +23,7 @@
 #include FT_FREETYPE_H
 #include FT_CACHE_H
 
-#include "types.h"
+#include "draw.h"
 
 FT_Library       ft_library;
 FT_Face          ft_face;

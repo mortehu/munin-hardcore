@@ -104,10 +104,4 @@ struct graph
   size_t curve_alloc;
 };
 
-struct canvas
-{
-  unsigned char* data;
-  size_t width, height;
-};
-
 #endif /* !TYPES_H_ */
