@@ -1,4 +1,20 @@
-#include <assert.h>
+/*  Entry point for munin-hardcore-graph.
+    Copyright (C) 2009  Morten Hustveit <morten@rashbox.org>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
@@ -543,12 +559,10 @@ main(int argc, char** argv)
     graph_order = g->order;
     qsort(g->curves, g->curve_count, sizeof(struct curve), curve_name_cmp);
 
-#if 0
     do_graph(g, 300, "day");
     do_graph(g, 1800, "week");
     do_graph(g, 7200, "month");
     do_graph(g, 86400, "year");
-#endif
 
     gettimeofday(&graph_end, 0);
 
@@ -571,13 +585,10 @@ main(int argc, char** argv)
 
 no_graph:
 
-    ;
-    /*
     for(curve = 0; curve < g->curve_count; ++curve)
       rrd_free(&g->curves[curve].data);
 
     free(g->curves);
-      */
   }
 
   if(stats)
@@ -812,27 +823,23 @@ plot_min_max(struct canvas* canvas,
 
   struct rrd* data;
 
-  size_t min_rra, max_rra;
   size_t min_row_count, max_row_count;
   size_t min_skip, max_skip;
 
   data = &c->data;
 
-  min_rra = ca->rra_min;
-  max_rra = ca->rra_max;
-
-  min_row_count = data->rra_defs[min_rra].row_count;
-  max_row_count = data->rra_defs[max_rra].row_count;
+  min_row_count = data->rra_defs[ca->rra_min].row_count;
+  max_row_count = data->rra_defs[ca->rra_max].row_count;
 
   min_skip = min_row_count - width + 1;
   max_skip = max_row_count - width + 1;
 
   for(i = 0; i < min_row_count && i < max_row_count && x < width; ++i, ++x)
   {
-    double min_value = data->values[ca->rra_min_offset + ((i + min_skip + data->rra_ptrs[min_rra]) % min_row_count) * data->header.ds_count + ds];
-    double max_value = data->values[ca->rra_max_offset + ((i + max_skip + data->rra_ptrs[max_rra]) % max_row_count) * data->header.ds_count + ds];
+    double min_value = c->data.values[ca->rra_min_offset + ((i + min_skip + c->data.rra_ptrs[ca->rra_min]) % c->data.rra_defs[ca->rra_min].row_count) * c->data.header.ds_count + ds];
+    double max_value = c->data.values[ca->rra_max_offset + ((i + max_skip + c->data.rra_ptrs[ca->rra_max]) % c->data.rra_defs[ca->rra_max].row_count) * c->data.header.ds_count + ds];
 
-    if(isnan(min) || isnan(max))
+    if(isnan(min_value) || isnan(max_value))
       continue;
 
     if(flags & PLOT_NEGATIVE)
@@ -1122,15 +1129,15 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     }
 
     ca->cur = c->data.values[ca->rra_avg_offset + c->data.rra_ptrs[ca->rra_avg] * c->data.header.ds_count];
-    ca->max_avg = ca->cur;
-    ca->min_avg = ca->cur;
-    ca->min = ca->cur;
-    ca->max = ca->cur;
+    ca->max_avg = 0.0;
+    ca->min_avg = 0.0;
+    ca->min = 0.0;
+    ca->max = 0.0;
     ca->avg = 0.0;
 
-    size_t avg_skip = c->data.rra_defs[ca->rra_avg].row_count - graph_width;
-    size_t min_skip = c->data.rra_defs[ca->rra_min].row_count - graph_width;
-    size_t max_skip = c->data.rra_defs[ca->rra_max].row_count - graph_width;
+    size_t avg_skip = c->data.rra_defs[ca->rra_avg].row_count - graph_width + 1;
+    size_t min_skip = c->data.rra_defs[ca->rra_min].row_count - graph_width + 1;
+    size_t max_skip = c->data.rra_defs[ca->rra_max].row_count - graph_width + 1;
 
     for(i = 0, x = 0; i < c->data.rra_defs[ca->rra_avg].row_count && x < graph_width; ++i, ++x)
     {
@@ -1138,28 +1145,28 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
       double min_value = c->data.values[ca->rra_min_offset + ((i + min_skip + c->data.rra_ptrs[ca->rra_min]) % c->data.rra_defs[ca->rra_min].row_count) * c->data.header.ds_count + ds];
       double max_value = c->data.values[ca->rra_max_offset + ((i + max_skip + c->data.rra_ptrs[ca->rra_max]) % c->data.rra_defs[ca->rra_max].row_count) * c->data.header.ds_count + ds];
 
-      if(isnan(avg_value))
-        continue;
-
-      if(area)
+      if(!isnan(avg_value))
       {
-        maxs[x] += avg_value;
+        if(area)
+        {
+          maxs[x] += avg_value;
 
-        if(maxs[x] > max)
-          max = maxs[x];
+          if(maxs[x] > max)
+            max = maxs[x];
+        }
+
+        ca->avg += avg_value;
+
+        if(avg_value > ca->max_avg)
+          ca->max_avg = avg_value;
+        else if(avg_value < ca->min_avg)
+          ca->min_avg = avg_value;
       }
 
-      ca->avg += avg_value;
-
-      if(avg_value > ca->max_avg)
-        ca->max_avg = avg_value;
-      else if(avg_value < ca->min_avg)
-        ca->min_avg = avg_value;
-
-      if(max_value > ca->max)
+      if(!isnan(max_value) && max_value > ca->max)
         ca->max = max_value;
 
-      if(min_value < ca->min)
+      if(!isnan(min_value) && min_value < ca->min)
         ca->min = min_value;
     }
 
