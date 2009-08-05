@@ -1,4 +1,4 @@
-/*  Funt functions for munin-hardcore.
+/*  Font functions for munin-hardcore.
     Copyright (C) 2009  Morten Hustveit <morten@rashbox.org>
 
     This program is free software: you can redistribute it and/or modify
