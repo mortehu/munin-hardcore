@@ -24,22 +24,41 @@
 
 #include "rrd.h"
 
-void
+int
 rrd_parse(struct rrd* result, const char* filename)
 {
   FILE* f;
   size_t i, data_size = 0;
 
+  /* To facilitate free-ing of incompletely loaded RRDs */
+  memset(result, 0, sizeof(struct rrd));
+
   f = fopen(filename, "r");
 
   if(!f)
-    errx(EXIT_FAILURE, "Failed to open '%s': %s", filename, strerror(errno));
+  {
+    /* Silently ignore ENOENT like munin-graph does */
+    if(errno == ENOENT)
+      return -1;
+
+    fprintf("Failed to open '%s': %s\n", filename, strerror(errno));
+
+    return -1;
+  }
 
   if(1 != fread(&result->header, sizeof(result->header), 1, f))
-    errx(EXIT_FAILURE, "Error reading header from '%s': %s", filename, strerror(errno));
+  {
+    fprintf(stderr, "Error reading header from '%s': %s\n", filename, strerror(errno));
+
+    return -1;
+  }
 
   if(memcmp("RRD", result->header.cookie, 4))
-    errx(EXIT_FAILURE, "Incorrect cookie in '%s'", filename);
+  {
+    fprintf(stderr, "Incorrect cookie in '%s'\n", filename);
+
+    return -1;
+  }
 
   int version = (result->header.version[0] - '0') * 1000
               + (result->header.version[1] - '0') * 100
@@ -47,44 +66,68 @@ rrd_parse(struct rrd* result, const char* filename)
               + (result->header.version[3] - '0');
 
   if(version < 1 || version > 3)
-    errx(EXIT_FAILURE, "Unsupported RRD version in '%s'", filename);
+    fprintf(stderr, "Unsupported RRD version in '%s'\n", filename);
 
   if(result->header.float_cookie != 8.642135E130)
-    errx(EXIT_FAILURE, "Floating point sanity test failed for '%s'", filename);
+  {
+    fprintf(stderr, "Floating point sanity test failed for '%s'\n", filename);
+
+    return -1;
+  }
 
   result->ds_defs = malloc(sizeof(struct ds_def) * result->header.ds_count);
 
   if(result->header.ds_count != fread(result->ds_defs, sizeof(struct ds_def), result->header.ds_count, f))
-    errx(EXIT_FAILURE, "Error reading data source definitions from '%s': %s", filename, strerror(errno));
+  {
+    fprintf(stderr, "Error reading data source definitions from '%s': %s\n", filename, strerror(errno));
+
+    return -1;
+  }
 
   for(i = 0; i < result->header.ds_count; ++i)
   {
     if(result->ds_defs[i].ds_name[19] || result->ds_defs[i].dst[19])
-      errx(EXIT_FAILURE, "Missing NUL-termination in data source definition strings in '%s'", filename);
+    {
+      fprintf(stderr, "Missing NUL-termination in data source definition strings in '%s'\n", filename);
+
+      return -1;
+    }
   }
 
   result->rra_defs = malloc(sizeof(struct rra_def) * result->header.rra_count);
 
   if(result->header.rra_count != fread(result->rra_defs, sizeof(struct rra_def), result->header.rra_count, f))
-    errx(EXIT_FAILURE, "Error reading rr-archive definitions from '%s': %s", filename, strerror(errno));
+    fprintf(stderr, "Error reading rr-archive definitions from '%s': %s\n", filename, strerror(errno));
 
   for(i = 0; i < result->header.rra_count; ++i)
   {
     if(result->rra_defs[i].cf_name[19])
-      errx(EXIT_FAILURE, "Missing NUL-termination in rr-archive definition string in '%s'", filename);
+    {
+      fprintf(stderr, "Missing NUL-termination in rr-archive definition string in '%s'\n", filename);
+
+      return -1;
+    }
   }
 
   if(version >= 3)
   {
     if(1 != fread(&result->live_header, sizeof(result->live_header), 1, f))
-      errx(EXIT_FAILURE, "Error reading live header from '%s': %s", filename, strerror(errno));
+    {
+      fprintf(stderr, "Error reading live header from '%s': %s\n", filename, strerror(errno));
+
+      return -1;
+    }
   }
   else
   {
     time_t val;
 
     if(1 != fread(&val, sizeof(val), 1, f))
-      errx(EXIT_FAILURE, "Error reading live header from '%s': %s", filename, strerror(errno));
+    {
+      fprintf(stderr, "Error reading live header from '%s': %s\n", filename, strerror(errno));
+
+      return -1;
+    }
 
     result->live_header.last_up = val;
     result->live_header.last_up_usec = 0;
@@ -93,18 +136,30 @@ rrd_parse(struct rrd* result, const char* filename)
   result->pdp_preps = malloc(sizeof(struct pdp_prepare) * result->header.ds_count);
 
   if(result->header.ds_count != fread(result->pdp_preps, sizeof(struct pdp_prepare), result->header.ds_count, f))
-    errx(EXIT_FAILURE, "Error reading PDP preps from '%s': %s", filename, strerror(errno));
+  {
+    fprintf(stderr, "Error reading PDP preps from '%s': %s\n", filename, strerror(errno));
+
+    return -1;
+  }
 
   i = result->header.ds_count * result->header.rra_count;
   result->cdp_preps = malloc(sizeof(struct cdp_prepare) * i);
 
   if(i != fread(result->cdp_preps, sizeof(struct cdp_prepare), i, f))
-    errx(EXIT_FAILURE, "Error reading CDP preps from '%s': %s", filename, strerror(errno));
+  {
+    fprintf(stderr, "Error reading CDP preps from '%s': %s\n", filename, strerror(errno));
+
+    return -1;
+  }
 
   result->rra_ptrs = malloc(sizeof(*result->rra_ptrs) * result->header.rra_count);
 
   if(result->header.rra_count != fread(result->rra_ptrs, sizeof(*result->rra_ptrs), result->header.rra_count, f))
-    errx(EXIT_FAILURE, "Error reading RRA pointers from '%s': %s", filename, strerror(errno));
+  {
+    fprintf(stderr, "Error reading RRA pointers from '%s': %s\n", filename, strerror(errno));
+
+    return -1;
+  }
 
   for(i = 0; i < result->header.rra_count; ++i)
     data_size += result->rra_defs[i].row_count * result->header.ds_count;
@@ -112,9 +167,15 @@ rrd_parse(struct rrd* result, const char* filename)
   result->values = malloc(sizeof(double) * data_size);
 
   if(data_size != fread(result->values, sizeof(double), data_size, f))
-    errx(EXIT_FAILURE, "Error reading %zu values from '%s': %s", data_size, filename, strerror(errno));
+  {
+    fprintf(stderr, "Error reading %zu values from '%s': %s\n", data_size, filename, strerror(errno));
+
+    return -1;
+  }
 
   fclose(f);
+
+  return 0;
 }
 
 void

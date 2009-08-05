@@ -18,6 +18,9 @@ struct curve
   const char* negative;
   int nograph;
 
+  uint32_t color;
+  int has_color;
+
   double max, min, warning, critical;
 };
 
@@ -36,6 +39,7 @@ struct graph
   const char* scale;
   const char* total;
   const char* vlabel;
+  int nograph;
 
   size_t width, height;
 

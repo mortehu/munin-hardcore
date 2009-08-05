@@ -1,3 +1,4 @@
+#include <assert.h>
 /*  Entry point for munin-hardcore-graph.
     Copyright (C) 2009  Morten Hustveit <morten@rashbox.org>
 
@@ -22,7 +23,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <string.h>
 #include <time.h>
 
@@ -95,13 +95,15 @@ graph_index(const char* domain, const char* host, const char* name)
 {
   size_t i;
 
-  for(i = 0; i < graph_count; ++i)
+  for(i = graph_count; i-- > 0; )
   {
     if(!strcmp(graphs[i].domain, domain)
     && !strcmp(graphs[i].host, host)
     && !strcmp(graphs[i].name, name))
       return i;
   }
+
+  i = graph_count;
 
   if(graph_count == graph_alloc)
   {
@@ -126,11 +128,13 @@ curve_index(struct graph* graph, const char* name)
 {
   size_t i;
 
-  for(i = 0; i < graph->curve_count; ++i)
+  for(i = graph->curve_count; i-- > 0; )
   {
     if(!strcmp(graph->curves[i].name, name))
       return i;
   }
+
+  i = graph->curve_count;
 
   if(graph->curve_count == graph->curve_alloc)
   {
@@ -208,6 +212,341 @@ graph_cmp(const void* plhs, const void* prhs)
   return strcmp(lhs->name, rhs->name);
 }
 
+const char* key_strings[] =
+{
+  "cdef", "color", "colour", "critical",
+  "dbdir", "draw", "graph", 
+  "graph_args", "graph_category", "graph_height", "graph_info",
+  "graph_order", "graph_period", "graph_scale", "graph_title",
+  "graph_total", "graph_vlabel", "graph_width", "htmldir",
+  "info", "label", "logdir", "max",
+  "min", "negative", "rundir", "skipdraw",
+  "tmpldir", "type", "warn", "warning"
+};
+
+enum key
+{
+  key_cdef = 0, key_color, key_colour, key_critical,
+  key_dbdir, key_draw, key_graph, 
+  key_graph_args, key_graph_category, key_graph_height, key_graph_info,
+  key_graph_order, key_graph_period, key_graph_scale, key_graph_title,
+  key_graph_total, key_graph_vlabel, key_graph_width, key_htmldir,
+  key_info, key_label, key_logdir, key_max,
+  key_min, key_negative, key_rundir, key_skipdraw,
+  key_tmpldir, key_type, key_warn, key_warning
+};
+
+static int
+lookup_key(const char* string)
+{
+  int first, last, len, half, middle, cmp;
+
+  first = 0;
+  len = last = sizeof(key_strings) / sizeof(key_strings[0]);
+
+  while(len > 0)
+  {
+    half = len >> 1;
+    middle = first + half;
+
+    cmp = strcmp(string, key_strings[middle]);
+
+    if(cmp == 0)
+      return middle;
+
+    if(cmp > 0)
+    {
+      first = middle + 1;
+      len = len - half - 1;
+    }
+    else
+      len = half;
+  }
+
+  return -1;
+}
+
+void parse_datafile(char* in)
+{
+  size_t curve, graph;
+  size_t lineno = 2;
+
+  char *line_end;
+  char* key_start;
+  char* key_end;
+  char* value_start;
+  char* domain_end;
+  char* host_start;
+  char* host_end;
+  char* graph_start;
+  char* graph_end;
+  char* graph_key;
+  char* tmp;
+
+  while(*in)
+  {
+    key_start = in;
+
+    while(isspace(*key_start))
+      ++key_start;
+
+    if(!*key_start)
+      break;
+
+    line_end = key_start + 1;
+
+    while(*line_end && *line_end != '\n')
+      ++line_end;
+
+    *line_end = 0;
+
+    key_end = strchr(key_start, ' ');
+
+    if(!key_end)
+      errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a SPACE character", lineno, DATA_FILE);
+
+    value_start = key_end + 1;
+    *key_end = 0;
+
+    while(isspace(*value_start))
+      ++value_start;
+
+    if(0 != (domain_end = strchr(key_start, ';')))
+    {
+      host_start = domain_end + 1;
+      *domain_end = 0;
+
+      host_end = strchr(host_start, ':');
+
+      if(!host_end)
+        errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a : character after host name", lineno, DATA_FILE);
+
+      graph_start = host_end + 1;
+      *host_end = 0;
+
+      if(0 != (graph_end = strchr(graph_start, '.')))
+      {
+        struct graph* g;
+
+        if(!graph_end)
+          errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a . character after graph name", lineno, DATA_FILE);
+
+        graph_key = graph_end + 1;
+        *graph_end = 0;
+
+        graph = graph_index(key_start, host_start, graph_start);
+        g = &graphs[graph];
+
+        if(0 != (tmp = strchr(graph_key, '.')))
+        {
+          char* curve_start;
+          struct curve* c;
+
+          curve_start = graph_key;
+          graph_key = tmp;
+
+          *graph_key++ = 0;
+
+          curve = curve_index(g, curve_start);
+          c = &g->curves[curve];
+
+          switch(lookup_key(graph_key))
+          {
+          case key_label:
+
+            c->label = value_start;
+
+            break;
+
+          case key_draw:
+
+            c->draw = value_start;
+
+            break;
+
+          case key_color:
+          case key_colour:
+
+            c->has_color = 1;
+            c->color = strtol(value_start, 0, 16);
+
+            break;
+
+          case key_graph:
+
+            c->nograph = !strcasecmp(value_start, "no");
+
+            break;
+
+          case key_skipdraw:
+
+            c->nograph = !!strtol(value_start, 0, 0);
+
+            break;
+
+          case key_type:
+
+            c->type = value_start;
+
+            break;
+
+          case key_info:
+
+            c->info = value_start;
+
+            break;
+
+          case key_cdef:
+
+            c->cdef = value_start;
+
+            break;
+
+          case key_negative:
+
+            c->negative = value_start;
+
+            break;
+
+          case key_max:
+
+            c->max = strtod(value_start, 0);
+
+            break;
+
+          case key_min:
+
+            c->min = strtod(value_start, 0);
+
+            break;
+
+          case key_warning:
+          case key_warn:
+
+            c->warning = strtod(value_start, 0);
+
+            break;
+
+          case key_critical:
+
+            c->critical = strtod(value_start, 0);
+
+            break;
+
+          default:
+
+            if(debug)
+              fprintf(stderr, "Skipping unknown data source key '%s' at line %zu\n", graph_key, lineno);
+          }
+        }
+        else
+        {
+          switch(lookup_key(graph_key))
+          {
+          case key_graph:
+
+            g->nograph = !strcasecmp(value_start, "no");
+
+            break;
+
+          case key_graph_args:
+
+            g->args = value_start;
+
+            break;
+
+          case key_graph_vlabel:
+
+            g->vlabel = value_start;
+
+            break;
+
+          case key_graph_title:
+
+            g->title = value_start;
+
+            break;
+
+          case key_graph_order:
+
+            g->order = value_start;
+
+            break;
+
+          case key_graph_category:
+
+            g->category = value_start;
+
+            break;
+
+          case key_graph_info:
+
+            g->info = value_start;
+
+            break;
+
+          case key_graph_scale:
+
+            g->scale = value_start;
+
+            break;
+
+          case key_graph_height:
+
+            g->height = strtol(value_start, 0, 0);
+
+            break;
+
+          case key_graph_width:
+
+            g->width = strtol(value_start, 0, 0);
+
+            break;
+
+          case key_graph_period:
+
+            g->period = value_start;
+
+            break;
+
+          case key_graph_total:
+
+            g->total = value_start;
+
+            break;
+
+          default:
+            fprintf(stderr, "Skipping unknown graph key '%s' at line %zu\n", graph_key, lineno);
+          }
+        }
+      }
+      else if(!strcmp(graph_start, "use_node_name"))
+      {
+      }
+      else if(!strcmp(graph_start, "address"))
+      {
+      }
+      else if(debug)
+        fprintf(stderr, "Skipping unknown host key '%s' at line %zu\n", graph_start, lineno);
+    }
+    else if(!strcmp(key_start, "tmpldir"))
+      tmpldir = value_start;
+    else if(!strcmp(key_start, "htmldir"))
+      htmldir = value_start;
+    else if(!strcmp(key_start, "dbdir"))
+      dbdir = value_start;
+    else if(!strcmp(key_start, "rundir"))
+      rundir = value_start;
+    else if(!strcmp(key_start, "logdir"))
+      logdir = value_start;
+    else if(debug)
+      fprintf(stderr, "Skipping unknown global key '%s' at line %zu\n", key_start, lineno);
+
+    in = line_end + 1;
+    ++lineno;
+  }
+}
+
 int
 main(int argc, char** argv)
 {
@@ -216,7 +555,6 @@ main(int argc, char** argv)
   char* data;
   char* in;
   char* line_end;
-  size_t lineno = 2;
   size_t graph, curve;
 
   for(;;)
@@ -325,164 +663,7 @@ main(int argc, char** argv)
 
   in = line_end + 1;
 
-  while(*in)
-  {
-    char* key_start;
-    char* key_end;
-    char* value_start;
-    char* domain_end;
-
-    key_start = in;
-
-    while(isspace(*key_start))
-      ++key_start;
-
-    if(!*key_start)
-      break;
-
-    line_end = key_start + 1;
-
-    while(*line_end && *line_end != '\n')
-      ++line_end;
-
-    *line_end = 0;
-
-    key_end = strchr(key_start, ' ');
-
-    if(!key_end)
-      errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a SPACE character", lineno, DATA_FILE);
-
-    value_start = key_end + 1;
-    *key_end = 0;
-
-    while(isspace(*value_start))
-      ++value_start;
-
-    if(!strcmp(key_start, "tmpldir"))
-    {
-      tmpldir = value_start;
-    }
-    else if(!strcmp(key_start, "htmldir"))
-    {
-      htmldir = value_start;
-    }
-    else if(!strcmp(key_start, "dbdir"))
-    {
-      dbdir = value_start;
-    }
-    else if(!strcmp(key_start, "rundir"))
-    {
-      rundir = value_start;
-    }
-    else if(!strcmp(key_start, "logdir"))
-    {
-      logdir = value_start;
-    }
-    else if(0 != (domain_end = strchr(key_start, ';')))
-    {
-      char* host_start;
-      char* host_end;
-      char* graph_start;
-      char* graph_end;
-      char* graph_key;
-
-      host_start = domain_end + 1;
-      *domain_end = 0;
-
-      host_end = strchr(host_start, ':');
-
-      if(!host_end)
-        errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a : character after host name", lineno, DATA_FILE);
-
-      graph_start = host_end + 1;
-      *host_end = 0;
-
-      if(!strcmp(graph_start, "use_node_name"))
-      {
-      }
-      else if(!strcmp(graph_start, "address"))
-      {
-      }
-      else if(0 != (graph_end = strchr(graph_start, '.')))
-      {
-        if(!graph_end)
-          errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a . character after graph name", lineno, DATA_FILE);
-
-        graph_key = graph_end + 1;
-        *graph_end = 0;
-
-        graph = graph_index(key_start, host_start, graph_start);
-
-        if(!strcmp(graph_key, "graph_args"))
-          graphs[graph].args = value_start;
-        else if(!strcmp(graph_key, "graph_vlabel"))
-          graphs[graph].vlabel = value_start;
-        else if(!strcmp(graph_key, "graph_title"))
-          graphs[graph].title = value_start;
-        else if(!strcmp(graph_key, "graph_order"))
-          graphs[graph].order = value_start;
-        else if(!strcmp(graph_key, "graph_category"))
-          graphs[graph].category = value_start;
-        else if(!strcmp(graph_key, "graph_info"))
-          graphs[graph].info = value_start;
-        else if(!strcmp(graph_key, "graph_scale"))
-          graphs[graph].scale = value_start;
-        else if(!strcmp(graph_key, "graph_height"))
-          graphs[graph].height = strtol(value_start, 0, 0);
-        else if(!strcmp(graph_key, "graph_width"))
-          graphs[graph].width = strtol(value_start, 0, 0);
-        else if(!strcmp(graph_key, "graph_period"))
-          graphs[graph].period = value_start;
-        else if(!strcmp(graph_key, "graph_total"))
-          graphs[graph].total = value_start;
-        else if(strchr(graph_key, '.'))
-        {
-          char* curve_start;
-
-          curve_start = graph_key;
-          graph_key = strchr(curve_start, '.');
-
-          *graph_key++ = 0;
-
-          curve = curve_index(&graphs[graph], curve_start);
-
-          if(!strcmp(graph_key, "label"))
-            graphs[graph].curves[curve].label = value_start;
-          else if(!strcmp(graph_key, "draw"))
-            graphs[graph].curves[curve].draw = value_start;
-          else if(!strcmp(graph_key, "graph"))
-            graphs[graph].curves[curve].nograph = !strcasecmp(value_start, "no");
-          else if(!strcmp(graph_key, "type"))
-            graphs[graph].curves[curve].type = value_start;
-          else if(!strcmp(graph_key, "info"))
-            graphs[graph].curves[curve].info = value_start;
-          else if(!strcmp(graph_key, "cdef"))
-            graphs[graph].curves[curve].cdef = value_start;
-          else if(!strcmp(graph_key, "negative"))
-            graphs[graph].curves[curve].negative = value_start;
-          else if(!strcmp(graph_key, "max"))
-            graphs[graph].curves[curve].max = strtod(value_start, 0);
-          else if(!strcmp(graph_key, "min"))
-            graphs[graph].curves[curve].min = strtod(value_start, 0);
-          else if(!strcmp(graph_key, "warning") || !strcmp(graph_key, "warn"))
-            graphs[graph].curves[curve].warning = strtod(value_start, 0);
-          else if(!strcmp(graph_key, "critical"))
-            graphs[graph].curves[curve].critical = strtod(value_start, 0);
-          else if(debug)
-            fprintf(stderr, "Skipping unknown data source key '%s'\n", graph_key);
-        }
-        else if(debug)
-          fprintf(stderr, "Skipping unknown graph key '%s'\n", graph_key);
-      }
-      else if(debug)
-        fprintf(stderr, "Skipping unknown host key '%s'\n", graph_start);
-    }
-    else if(debug)
-      fprintf(stderr, "Skipping unknown global key '%s'\n", key_start);
-
-    in = line_end + 1;
-    ++lineno;
-  }
+  parse_datafile(in);
 
   qsort(graphs, graph_count, sizeof(struct graph), graph_cmp);
 
@@ -495,9 +676,16 @@ main(int argc, char** argv)
   {
     struct graph* g = &graphs[graph];
 
+    if(g->nograph)
+    {
+      free(g->curves);
+
+      continue;
+    }
+
     graph_start = graph_end;
 
-    for(curve = 0; curve < g->curve_count; ++curve)
+    for(curve = 0; curve < g->curve_count; )
     {
       struct curve* c = &g->curves[curve];
 
@@ -517,50 +705,56 @@ main(int argc, char** argv)
       if(-1 == asprintf(&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, g->domain, g->host, g->name, c->name, suffix))
         errx(EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror(errno));
 
-      if(-1 == access(c->path, R_OK))
+      if(-1 == rrd_parse(&c->data, c->path))
       {
         if(debug)
-          fprintf(stderr, "Don't have %s\n", c->path);
+          fprintf(stderr, "Skipping data source %s\n", c->path);
 
-        goto no_graph;
+	free(g->curves[curve].path);
+
+	--g->curve_count;
+	memmove(&g->curves[curve], &g->curves[curve + 1], sizeof(struct curve) * (g->curve_count - curve));
+
+	continue;
       }
 
-      rrd_parse(&c->data, c->path);
+      ++curve;
     }
 
-    graph_order = g->order;
-    qsort(g->curves, g->curve_count, sizeof(struct curve), curve_name_cmp);
-
-    do_graph(g, 300, "day");
-    do_graph(g, 1800, "week");
-    do_graph(g, 7200, "month");
-    do_graph(g, 86400, "year");
-
-    gettimeofday(&graph_end, 0);
-
-    if(stats)
+    if(g->curve_count)
     {
-      fprintf(stats, "GS|%s|%s|%s|%.3f\n", g->domain, g->host, g->name,
-              graph_end.tv_sec - graph_start.tv_sec + (graph_end.tv_usec - graph_start.tv_usec) * 1.0e-6);
+      graph_order = g->order;
+      qsort(g->curves, g->curve_count, sizeof(struct curve), curve_name_cmp);
 
-      if(graph + 1 == graph_count
-      || strcmp(graphs[graph + 1].domain, graphs[graph].domain))
+      do_graph(g, 300, "day");
+      do_graph(g, 1800, "week");
+      do_graph(g, 7200, "month");
+      do_graph(g, 86400, "year");
+
+      gettimeofday(&graph_end, 0);
+
+      if(stats)
       {
-        domain_end = graph_end;
+	fprintf(stats, "GS|%s|%s|%s|%.3f\n", g->domain, g->host, g->name,
+		graph_end.tv_sec - graph_start.tv_sec + (graph_end.tv_usec - graph_start.tv_usec) * 1.0e-6);
 
-        fprintf(stats, "GD|%s|%.3f\n", g->domain,
-            domain_end.tv_sec - domain_start.tv_sec + (domain_end.tv_usec - domain_start.tv_usec) * 1.0e-6);
+	if(graph + 1 == graph_count
+	|| strcmp(graphs[graph + 1].domain, graphs[graph].domain))
+	{
+	  domain_end = graph_end;
 
-        domain_start = domain_end;
+	  fprintf(stats, "GD|%s|%.3f\n", g->domain,
+	      domain_end.tv_sec - domain_start.tv_sec + (domain_end.tv_usec - domain_start.tv_usec) * 1.0e-6);
+
+	  domain_start = domain_end;
+	}
       }
-    }
 
-no_graph:
-
-    for(curve = 0; curve < g->curve_count; ++curve)
-    {
-      rrd_free(&g->curves[curve].data);
-      free(g->curves[curve].path);
+      for(curve = 0; curve < g->curve_count; ++curve)
+      {
+	rrd_free(&g->curves[curve].data);
+	free(g->curves[curve].path);
+      }
     }
 
     free(g->curves);
@@ -858,6 +1052,25 @@ const struct time_args time_args[] =
   { "%b", 0, INTERVAL_MONTH, 0 },
 };
 
+int
+pmkdir(const char* path, int mode)
+{
+  char* p = strdupa(path);
+  char* t = p;
+
+  while(0 != (t = strchr(t, '/')))
+  {
+    *t = 0;
+
+    if(-1 == mkdir(p, mode) && errno != EEXIST)
+      return -1;
+
+    *t++ = '/';
+  }
+
+  return 0;
+}
+
 void
 do_graph(struct graph* g, size_t interval, const char* suffix)
 {
@@ -869,7 +1082,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   char* png_path;
 
-  asprintf(&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
+  asprintf(&png_path, "%s/%s/%s-%s-%s.png", "graphs"/*htmldir*/, g->domain, g->host, g->name, suffix);
 
   struct stat png_stat;
 
@@ -1244,7 +1457,10 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
       if(label_width > max_label_width)
         max_label_width = label_width;
 
-      color = colors[graph_index % (sizeof(colors) / sizeof(colors[0]))];
+      if(c->has_color)
+        color = c->color;
+      else
+        color = colors[graph_index % (sizeof(colors) / sizeof(colors[0]))];
 
       if(!c->draw || !strcasecmp(c->draw, "line2"))
       {
@@ -1380,7 +1596,10 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   draw_line(&canvas, graph_x, y + graph_y, graph_x + graph_width - 1, y + graph_y, 0);
 
-  write_png(png_path, canvas.width, canvas.height, canvas.data);
+  if(-1 == pmkdir(png_path, 0775))
+    fprintf(stderr, "Failed to create directory '%s': %s\n", png_path, strerror(errno));
+  else
+    write_png(png_path, canvas.width, canvas.height, canvas.data);
 
   free(png_path);
   free(canvas.data);

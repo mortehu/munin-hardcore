@@ -64,7 +64,7 @@ struct rrd
   double* values;
 };
 
-void
+int
 rrd_parse(struct rrd* result, const char* filename);
 
 void
