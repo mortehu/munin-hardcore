@@ -28,7 +28,6 @@
 FT_Library       ft_library;
 FT_Face          ft_face;
 FTC_Manager      ft_cache_mgr;
-FTC_CMapCache    ft_cmap_cache;
 FTC_SBitCache    ft_sbit_cache;
 FTC_ImageTypeRec ft_image_type;
 
@@ -61,9 +60,6 @@ font_init()
 
   if(0 != (result = FTC_Manager_New(ft_library, 1, 1, FONT_CACHE_SIZE, face_requester, NULL, &ft_cache_mgr)))
     errx(EXIT_FAILURE, "Failed to create font cache manager: %d", result);
-
-  if(0 != (result = FTC_CMapCache_New(ft_cache_mgr, &ft_cmap_cache)))
-    errx(EXIT_FAILURE, "Failed to create font character map cache: %d", result);
 
   if(0 != (result = FTC_SBitCache_New(ft_cache_mgr, &ft_sbit_cache)))
     errx(EXIT_FAILURE, "Failed to create font image cache: %d", result);
@@ -102,7 +98,7 @@ font_width(const char* text)
     while(n-- && *text)
       ch <<= 6, ch |= (*text++ & 0x3F);
 
-    idx = FTC_CMapCache_Lookup(ft_cmap_cache, 0, 0, ch);
+    idx = FT_Get_Char_Index(ft_face, ch);
 
     if(!idx)
       continue;
@@ -146,10 +142,11 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
     else if((ch & 0xFE) == 0xFC)
       ch &= 0x01, n = 5;
 
-    while(n-- && *text)
-      ch <<= 6, ch |= (*text++ & 0x3F);
+    if(n)
+      while(n-- && *text)
+        ch <<= 6, ch |= (*text++ & 0x3F);
 
-    idx = FTC_CMapCache_Lookup(ft_cmap_cache, 0, 0, ch);
+    idx = FT_Get_Char_Index(ft_face, ch);
 
     if(!idx)
       continue;
