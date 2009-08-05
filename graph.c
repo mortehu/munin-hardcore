@@ -652,6 +652,8 @@ void
 number_format_args(double number, const char** format, const char** suffix, double* scale)
 {
   static const char* fmt[] = { "%.2f%s", "%.1f%s", "%.0f%s" };
+  /* XXX: Not reentrant because of this buffer: */
+  static char suffix_buf[32];
 
   int mag, rad;
 
@@ -673,10 +675,14 @@ number_format_args(double number, const char** format, const char** suffix, doub
     mag /= 3;
 
     if(mag > sizeof(suffixes) / sizeof(suffixes[0]) - 1)
-      mag = sizeof(suffixes) / sizeof(suffixes[0]) - 1;
+    {
+      sprintf(suffix_buf, "E-%u", mag * 3);
+      *suffix = suffix_buf;
+    }
+    else
+      *suffix = suffixes[mag];
 
     *format = fmt[rad];
-    *suffix = suffixes[mag];
     *scale = pow(1000, mag + 1);
   }
   else
@@ -696,11 +702,15 @@ number_format_args(double number, const char** format, const char** suffix, doub
       static const char* suffixes[] = { "k", "M", "G", "T", "P", "E", "Z", "Y" };
 
       if(mag > sizeof(suffixes) / sizeof(suffixes[0]))
-        mag = sizeof(suffixes) / sizeof(suffixes[0]);
+      {
+        sprintf(suffix_buf, "E%u", mag * 3);
+        *suffix = suffix_buf;
+      }
+      else
+        *suffix = suffixes[mag - 1];
 
       *format = fmt[rad];
       *scale = pow(1000.0, -mag);
-      *suffix = suffixes[mag - 1];
     }
   }
 }
