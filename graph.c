@@ -586,7 +586,10 @@ main(int argc, char** argv)
 no_graph:
 
     for(curve = 0; curve < g->curve_count; ++curve)
+    {
       rrd_free(&g->curves[curve].data);
+      free(g->curves[curve].path);
+    }
 
     free(g->curves);
   }
