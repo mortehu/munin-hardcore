@@ -1,0 +1,5 @@
+- Render grid on top of AREA and STACK graphs (currently under)
+- Parse graph_args
+- Parse graph_scale
+- Use max and min from datafile
+- Support cdef
