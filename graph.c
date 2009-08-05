@@ -136,9 +136,9 @@ rrd_parse(struct rrd* result, const char* filename)
   if(i != fread(result->cdp_preps, sizeof(struct cdp_prepare), i, f))
     errx(EXIT_FAILURE, "Error reading CDP preps from '%s': %s", filename, strerror(errno));
 
-  result->rra_ptrs = malloc(sizeof(uint32_t) * result->header.rra_count);
+  result->rra_ptrs = malloc(sizeof(*result->rra_ptrs) * result->header.rra_count);
 
-  if(result->header.rra_count != fread(result->rra_ptrs, sizeof(uint32_t), result->header.rra_count, f))
+  if(result->header.rra_count != fread(result->rra_ptrs, sizeof(*result->rra_ptrs), result->header.rra_count, f))
     errx(EXIT_FAILURE, "Error reading RRA pointers from '%s': %s", filename, strerror(errno));
 
   for(i = 0; i < result->header.rra_count; ++i)
