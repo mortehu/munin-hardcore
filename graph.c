@@ -516,7 +516,9 @@ void parse_datafile(char* in)
             break;
 
           default:
-            fprintf(stderr, "Skipping unknown graph key '%s' at line %zu\n", graph_key, lineno);
+
+            if(debug)
+              fprintf(stderr, "Skipping unknown graph key '%s' at line %zu\n", graph_key, lineno);
           }
         }
       }
@@ -1056,14 +1058,18 @@ int
 pmkdir(const char* path, int mode)
 {
   char* p = strdupa(path);
-  char* t = p;
+  char* t = p + 1;
 
   while(0 != (t = strchr(t, '/')))
   {
     *t = 0;
 
     if(-1 == mkdir(p, mode) && errno != EEXIST)
+    {
+      fprintf(stderr, "Failed to create directory '%s': %s\n", p, strerror(errno));
+
       return -1;
+    }
 
     *t++ = '/';
   }
@@ -1596,9 +1602,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   draw_line(&canvas, graph_x, y + graph_y, graph_x + graph_width - 1, y + graph_y, 0);
 
-  if(-1 == pmkdir(png_path, 0775))
-    fprintf(stderr, "Failed to create directory '%s': %s\n", png_path, strerror(errno));
-  else
+  if(-1 != pmkdir(png_path, 0775))
     write_png(png_path, canvas.width, canvas.height, canvas.data);
 
   free(png_path);
