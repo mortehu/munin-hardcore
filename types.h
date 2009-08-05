@@ -5,19 +5,19 @@
 
 union unival
 {
-  uint32_t      u_count;
+  unsigned long u_count;
   double        u_val;
 };
 
 struct rrd_header
 {
-  char         cookie[4];
-  char         version[5];
-  double       float_cookie;
-  uint32_t     ds_count;
-  uint32_t     rra_count;
-  uint32_t     pdp_step;
-  union unival par[10];
+  char          cookie[4];
+  char          version[5];
+  double        float_cookie;
+  unsigned long ds_count;
+  unsigned long rra_count;
+  unsigned long pdp_step;
+  union unival  par[10];
 };
 
 struct ds_def
@@ -29,16 +29,16 @@ struct ds_def
 
 struct rra_def
 {
-  char         cf_name[20];
-  uint32_t     row_count;
-  uint32_t     pdp_count;
-  union unival par[10];
+  char          cf_name[20];
+  unsigned long row_count;
+  unsigned long pdp_count;
+  union unival  par[10];
 };
 
 struct live_header
 {
-  time_t   last_up;
-  uint32_t last_up_usec;
+  time_t        last_up;
+  unsigned long last_up_usec;
 };
 
 struct pdp_prepare
@@ -60,7 +60,7 @@ struct rrd
   struct live_header live_header;
   struct pdp_prepare* pdp_preps;
   struct cdp_prepare* cdp_preps;
-  uint32_t* rra_ptrs;
+  unsigned long* rra_ptrs;
   double* values;
 };
 

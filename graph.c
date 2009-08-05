@@ -1114,7 +1114,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     }
 
     if(ca->rra_min == -1 || ca->rra_max == -1 || ca->rra_avg == -1)
-      errx(EXIT_FAILURE, "Did not find all required rr-archivess (MIN, MAX and AVERAGE) in '%s'", c->path);
+      errx(EXIT_FAILURE, "Did not find all required rr-archivess in '%s'", c->path);
 
 
     if(!c->nograph && c->draw)
