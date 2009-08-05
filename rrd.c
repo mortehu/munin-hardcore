@@ -41,7 +41,7 @@ rrd_parse(struct rrd* result, const char* filename)
     if(errno == ENOENT)
       return -1;
 
-    fprintf("Failed to open '%s': %s\n", filename, strerror(errno));
+    fprintf(stderr, "Failed to open '%s': %s\n", filename, strerror(errno));
 
     return -1;
   }
