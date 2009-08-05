@@ -412,12 +412,14 @@ main(int argc, char** argv)
 
       int suffix;
 
-          if(!c->type || !strcasecmp(c->type, "gauge"))
+      if(!c->type || !strcasecmp(c->type, "gauge"))
         suffix = 'g';
       else if(!strcasecmp(c->type, "derive"))
         suffix = 'd';
       else if(!strcasecmp(c->type, "counter"))
         suffix = 'c';
+      else if(!strcasecmp(c->type, "absolute"))
+        suffix = 'a';
       else
         errx(EXIT_FAILURE, "Unknown curve type '%s'", c->type);
 
