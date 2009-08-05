@@ -39,7 +39,7 @@
 static const struct option long_options[] =
 {
   { "debug", 0, 0, 'd' },
-  { "no-lazy", 0, 0, 'l' },
+  { "no-lazy", 0, 0, 'n' },
   { "help", 0, 0, 'h' },
   { "version", 0, 0, 'v' },
   { 0, 0, 0, 0 }
