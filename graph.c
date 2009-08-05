@@ -215,7 +215,7 @@ graph_cmp(const void* plhs, const void* prhs)
 const char* key_strings[] =
 {
   "cdef", "color", "colour", "critical",
-  "dbdir", "draw", "graph", 
+  "dbdir", "draw", "graph",
   "graph_args", "graph_category", "graph_height", "graph_info",
   "graph_order", "graph_period", "graph_scale", "graph_title",
   "graph_total", "graph_vlabel", "graph_width", "htmldir",
@@ -227,7 +227,7 @@ const char* key_strings[] =
 enum key
 {
   key_cdef = 0, key_color, key_colour, key_critical,
-  key_dbdir, key_draw, key_graph, 
+  key_dbdir, key_draw, key_graph,
   key_graph_args, key_graph_category, key_graph_height, key_graph_info,
   key_graph_order, key_graph_period, key_graph_scale, key_graph_title,
   key_graph_total, key_graph_vlabel, key_graph_width, key_htmldir,
@@ -1082,7 +1082,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   char* png_path;
 
-  asprintf(&png_path, "%s/%s/%s-%s-%s.png", "graphs"/*htmldir*/, g->domain, g->host, g->name, suffix);
+  asprintf(&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
 
   struct stat png_stat;
 
