@@ -26,6 +26,7 @@
 #include <string.h>
 #include <time.h>
 
+#include <getopt.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -34,6 +35,35 @@
 #include "font.h"
 #include "munin.h"
 #include "rrd.h"
+
+static const struct option long_options[] =
+{
+  { "debug", 0, 0, 'd' },
+  { "no-lazy", 0, 0, 'l' },
+  { "help", 0, 0, 'h' },
+  { "version", 0, 0, 'v' },
+  { 0, 0, 0, 0 }
+};
+
+static int debug = 0;
+static int nolazy = 0;
+
+static void
+help(const char* argv0)
+{
+  printf("Usage: %s [OPTION]...\n"
+         "batch plotting of RRD data files\n"
+         "\n"
+         "Mandatory arguments to long options are mandatory for short"
+         " options too\n"
+         "\n"
+         " -d, --debug                print debug messages\n"
+         " -n, --no-lazy              redraw every single graph\n"
+         "     --help     display this help and exit\n"
+         "     --version  display version information and exit\n"
+         "\n"
+         "Report bugs to <morten@rashbox.org>.\n", argv0);
+}
 
 static const uint32_t colors[] =
 {
@@ -188,9 +218,70 @@ main(int argc, char** argv)
   char* line_end;
   size_t lineno = 2;
   size_t graph, curve;
-  int debug = 0;
+
+  for(;;)
+  {
+    int optindex = 0;
+    int c;
+
+    c = getopt_long(argc, argv, "dn", long_options, &optindex);
+
+    if(c == -1)
+      break;
+
+    switch(c)
+    {
+    case 'd':
+
+      debug = 1;
+
+      break;
+
+    case 'n':
+
+      nolazy = 1;
+
+      break;
+
+    case 'h':
+
+      help(argv[0]);
+
+      return EXIT_SUCCESS;
+
+    case 'v':
+
+      printf("%s-graph\n", PACKAGE_STRING);
+      printf("Copyright © 2009 Morten Hustveit\n"
+          "This is free software.  You may redistribute copies of it under the terms of\n"
+          "the GNU General Public License <http://www.gnu.org/licenses/gpl.html>.\n"
+          "There is NO WARRANTY, to the extent permitted by law.\n"
+          "\n"
+          "Authors:\n"
+          "  Morten Hustveit\n");
+
+      return EXIT_SUCCESS;
+
+    case '?':
+
+      fprintf(stderr, "Try `%s --help' for more information.\n", argv[0]);
+
+      return EXIT_FAILURE;
+    }
+  }
+
+  if(optind != argc)
+  {
+    printf("Usage: %s [OPTION]...\n", argv[0]);
+    fprintf(stderr, "Try `%s --help' for more information.\n", argv[0]);
+
+    return EXIT_FAILURE;
+  }
 
   FILE* stats = fopen("/var/lib/munin/munin-graph.stats", "w");
+
+  if(!stats && debug)
+    fprintf(stderr, "Failed to open /var/lib/munin/munin-graph.stats for writing: %s\n", strerror(errno));
 
   struct timeval total_start, total_end;
 
@@ -782,7 +873,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   struct stat png_stat;
 
-  if(interval > 300 && 0 == stat(png_path, &png_stat))
+  if(!nolazy && interval > 300 && 0 == stat(png_path, &png_stat))
   {
     for(curve = 0; curve < g->curve_count; ++curve)
     {
