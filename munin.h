@@ -22,6 +22,13 @@ struct curve
   int has_color;
 
   double max, min, warning, critical;
+
+  struct
+  {
+    double cur, max, min, avg;
+    double max_avg, min_avg;
+    const struct curve* negative;
+  } work;
 };
 
 struct graph

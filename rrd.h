@@ -9,6 +9,14 @@ union unival
   double        u_val;
 };
 
+enum cf_type
+{
+  cf_average = 0,
+  cf_minimum,
+  cf_maximum,
+  cf_last
+};
+
 struct rrd_header
 {
   char          cookie[4];
@@ -67,10 +75,39 @@ struct rrd
   double* values;
 };
 
+struct rrd_iterator
+{
+  const double* values;
+  size_t ds;
+  size_t offset;
+  size_t first;
+  size_t count;
+  size_t step;
+
+  size_t current_position;
+};
+
+#define rrd_iterator_pop(i) \
+    ((i)->values[(i)->offset + (((i)->current_position++ + (i)->first) % (i)->count) * (i)->step + (i)->ds])
+
+#define rrd_iterator_peek(i) \
+    ((i)->values[(i)->offset + (((i)->current_position + (i)->first) % (i)->count) * (i)->step + (i)->ds])
+
+#define rrd_iterator_last(i) \
+    ((i)->values[(i)->offset + (((i)->current_position + (i)->first + ((i)->count - 1)) % (i)->count) * (i)->step + (i)->ds])
+
+#define rrd_iterator_advance(i) \
+    do { ++(i)->current_position; } while(0)
+
 int
 rrd_parse(struct rrd* result, const char* filename);
 
 void
 rrd_free(struct rrd* data);
+
+int
+rrd_iterator_create(struct rrd_iterator* result, const struct rrd* data,
+                    const char* cf_name, size_t interval,
+                    size_t max_count);
 
 #endif /* !RRD_H_ */

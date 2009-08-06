@@ -778,43 +778,22 @@ main(int argc, char** argv)
   return EXIT_SUCCESS;
 }
 
-struct curve_args
-{
-  double cur, max, min, avg;
-  double max_avg, min_avg;
-  int rra_min, rra_max, rra_avg;
-  size_t rra_min_offset, rra_max_offset, rra_avg_offset;
-  size_t negative;
-};
-
 #define PLOT_NEGATIVE 0x0001
 
 void
 plot_gauge(struct canvas* canvas,
-           struct curve* c, struct curve_args* ca,
+           struct rrd_iterator* iterator,
            size_t graph_x, size_t graph_y,
            size_t width, size_t height,
            double min, double max, size_t ds,
            uint32_t color, unsigned int flags)
 {
   int x = 0, y, prev_y = -1;
-
   size_t i;
 
-  struct rrd* data;
-  size_t data_offset, rra;
-  size_t row_count, skip;
-
-  data = &c->data;
-  rra = ca->rra_avg;
-  data_offset = ca->rra_avg_offset;
-  row_count = data->rra_defs[rra].row_count;
-
-  skip = row_count - width + 1;
-
-  for(i = 0; i < row_count && x < width; ++i, ++x)
+  for(i = 0; i < iterator->count && x < width; ++i, ++x)
   {
-    double value = data->values[data_offset + ((i + skip + data->rra_ptrs[rra]) % row_count) * data->header.ds_count + ds];
+    double value = rrd_iterator_pop(iterator);
 
     if(isnan(value))
     {
@@ -839,7 +818,8 @@ plot_gauge(struct canvas* canvas,
 
 void
 plot_min_max(struct canvas* canvas,
-             struct curve* c, struct curve_args* ca,
+             struct rrd_iterator* mins,
+             struct rrd_iterator* maxs,
              size_t graph_x, size_t graph_y,
              size_t width, size_t height,
              double min, double max, size_t ds,
@@ -847,23 +827,10 @@ plot_min_max(struct canvas* canvas,
 {
   size_t i, x = 0;
 
-  struct rrd* data;
-
-  size_t min_row_count, max_row_count;
-  size_t min_skip, max_skip;
-
-  data = &c->data;
-
-  min_row_count = data->rra_defs[ca->rra_min].row_count;
-  max_row_count = data->rra_defs[ca->rra_max].row_count;
-
-  min_skip = min_row_count - width + 1;
-  max_skip = max_row_count - width + 1;
-
-  for(i = 0; i < min_row_count && i < max_row_count && x < width; ++i, ++x)
+  for(i = 0; i < mins->count && i < maxs->count && x < width; ++i, ++x)
   {
-    double min_value = c->data.values[ca->rra_min_offset + ((i + min_skip + c->data.rra_ptrs[ca->rra_min]) % c->data.rra_defs[ca->rra_min].row_count) * c->data.header.ds_count + ds];
-    double max_value = c->data.values[ca->rra_max_offset + ((i + max_skip + c->data.rra_ptrs[ca->rra_max]) % c->data.rra_defs[ca->rra_max].row_count) * c->data.header.ds_count + ds];
+    double min_value = rrd_iterator_pop(mins);
+    double max_value = rrd_iterator_pop(maxs);
 
     if(isnan(min_value) || isnan(max_value))
       continue;
@@ -883,31 +850,18 @@ plot_min_max(struct canvas* canvas,
 
 void
 plot_area(struct canvas* canvas,
-          struct curve* c, struct curve_args* ca,
-          double* maxs,
+          struct rrd_iterator* iterator, double* maxs,
           size_t graph_x, size_t graph_y,
           size_t width, size_t height,
           double min, double max, size_t ds,
           uint32_t color)
 {
   int x = 0, y0, y1;
-
   size_t i;
 
-  struct rrd* data;
-  size_t data_offset, rra;
-  size_t row_count, skip;
-
-  data = &c->data;
-  rra = ca->rra_avg;
-  data_offset = ca->rra_avg_offset;
-  row_count = data->rra_defs[rra].row_count;
-
-  skip = row_count - width + 1;
-
-  for(i = 0; i < row_count && x < width; ++i, ++x)
+  for(i = 0; i < iterator->count && x < width; ++i, ++x)
   {
-    double value = data->values[data_offset + ((i + skip + data->rra_ptrs[rra]) % row_count) * data->header.ds_count + ds];
+    double value = rrd_iterator_pop(iterator);
 
     if(isnan(value))
       continue;
@@ -1077,14 +1031,123 @@ pmkdir(const char* path, int mode)
   return 0;
 }
 
+const struct curve*
+find_curve(const struct graph* g, const char* name)
+{
+  size_t i;
+
+  for(i = 0; i < g->curve_count; ++i)
+    if(!strcmp(g->curves[i].name, name))
+      return &g->curves[i];
+
+  return 0;
+}
+
+void
+draw_grid(struct graph* g, struct canvas* canvas,
+          time_t last_update, size_t interval, double min, double max,
+          size_t graph_x, size_t graph_y, size_t graph_width, size_t graph_height)
+{
+  char buf[64];
+  int i, j;
+  int x, y;
+
+  double step_size;
+
+  const struct time_args* ta;
+  struct tm tm_last_update;
+  time_t t, prev_t;
+
+  const char* format;
+  const char* suffix;
+  double scale;
+
+  for(i = 0; i + 1 < sizeof(time_args) / sizeof(time_args[0]); ++i)
+  {
+    if(time_args[i].bar_interval > interval * 10)
+      break;
+  }
+
+  ta = &time_args[i];
+
+  step_size = calc_step_size(max - min, graph_height);
+
+  localtime_r(&last_update, &tm_last_update);
+  t = last_update + tm_last_update.tm_gmtoff;
+  prev_t = t + interval;
+
+  number_format_args((fabs(max) > fabs(min)) ? fabs(max) : fabs(min), &format, &suffix, &scale);
+
+  for(j = min / step_size; j <= max / step_size; ++j)
+  {
+    y = graph_height - (j * step_size - min) * (graph_height - 1) / (max - min) - 1;
+
+    sprintf(buf, format, (j * step_size) * scale, suffix);
+
+    font_draw(canvas, graph_x - 5, graph_y + y + 7, buf, -1);
+
+    if(!j)
+      continue;
+
+    for(x = 0; x < graph_width; x += 2)
+      draw_pixel(canvas, x + graph_x, y + graph_y, 0xc0c0c0);
+  }
+
+  for(j = 0; j < graph_width; ++j)
+  {
+    if(ta->label_interval > 0)
+    {
+      if((prev_t - ta->bias) / ta->label_interval != (t - ta->bias) / ta->label_interval)
+      {
+        struct tm tm_tmp;
+
+        gmtime_r(&prev_t, &tm_tmp);
+
+        strftime(buf, sizeof(buf), ta->format, &tm_tmp);
+
+        for(y = 0; y < graph_height; y += 2)
+          draw_pixel(canvas, graph_x + graph_width - j, y + graph_y, 0xffcccc);
+
+        font_draw(canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
+      }
+      else if(ta->bar_interval && (prev_t - ta->bias) / ta->bar_interval != (t - ta->bias) / ta->bar_interval)
+      {
+        for(y = 0; y < graph_height; y += 2)
+          draw_pixel(canvas, graph_x + graph_width - j, y + graph_y, 0xeeeeee);
+      }
+    }
+    else if(ta->label_interval == INTERVAL_MONTH)
+    {
+      struct tm a, b;
+
+      gmtime_r(&prev_t, &a);
+      gmtime_r(&t, &b);
+
+      if(a.tm_mon != b.tm_mon)
+      {
+        strftime(buf, sizeof(buf), ta->format, &a);
+
+        for(y = 0; y < graph_height; y += 2)
+          draw_pixel(canvas, graph_x + graph_width - j, y + graph_y, 0xffcccc);
+
+        font_draw(canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
+      }
+    }
+
+    prev_t = t;
+    t -= interval;
+  }
+
+  strftime(buf, sizeof(buf), "Last update: %Y-%m-%d %H:%M:%S %Z", &tm_last_update);
+  font_draw(canvas, canvas->width - 5, canvas->height - 3, buf, -1);
+}
+
 void
 do_graph(struct graph* g, size_t interval, const char* suffix)
 {
-  const struct time_args* ta;
   size_t x, y, width;
   time_t last_update = 0;
   size_t i, curve, ds = 0;
-  int j;
 
   char* png_path;
 
@@ -1110,14 +1173,6 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   int has_negative = 0, draw_min_max = 0;
 
-  for(i = 0; i + 1 < sizeof(time_args) / sizeof(time_args[0]); ++i)
-  {
-    if(time_args[i].bar_interval > interval * 10)
-      break;
-  }
-
-  ta = &time_args[i];
-
   size_t graph_width, graph_height;
   size_t graph_x = 60, graph_y = 30;
 
@@ -1130,51 +1185,23 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   size_t visible_graph_count = 0;
 
-  struct curve_args* cas = alloca(sizeof(struct curve_args) * g->curve_count);
-
   for(curve = 0; curve < g->curve_count; ++curve)
   {
     struct curve* c = &g->curves[curve];
-    struct curve_args* ca = &cas[curve];
-    size_t rra, offset = 0;
     int area = 0;
+
+    struct rrd_iterator iterator_average;
+    struct rrd_iterator iterator_min;
+    struct rrd_iterator iterator_max;
+    size_t avg_count = 0;
 
     if(c->data.live_header.last_up > last_update)
       last_update = c->data.live_header.last_up;
 
-    ca->rra_min = ca->rra_max = ca->rra_avg = -1;
-
-    for(rra = 0; rra < c->data.header.rra_count; ++rra)
-    {
-      if(c->data.rra_defs[rra].pdp_count != interval / c->data.header.pdp_step)
-      {
-        offset += c->data.rra_defs[rra].row_count * c->data.header.ds_count;
-
-        continue;
-      }
-
-      if(!strcmp(c->data.rra_defs[rra].cf_name, "MAX"))
-      {
-        ca->rra_max = rra;
-        ca->rra_max_offset = offset;
-      }
-      else if(!strcmp(c->data.rra_defs[rra].cf_name, "MIN"))
-      {
-        ca->rra_min = rra;
-        ca->rra_min_offset = offset;
-      }
-      else if(!strcmp(c->data.rra_defs[rra].cf_name, "AVERAGE"))
-      {
-        ca->rra_avg = rra;
-        ca->rra_avg_offset = offset;
-      }
-
-      offset += c->data.rra_defs[rra].row_count * c->data.header.ds_count;
-    }
-
-    if(ca->rra_min == -1 || ca->rra_max == -1 || ca->rra_avg == -1)
-      errx(EXIT_FAILURE, "Did not find all required rr-archivess in '%s'", c->path);
-
+    if(-1 == rrd_iterator_create(&iterator_average, &c->data, "AVERAGE", interval, graph_width)
+    || -1 == rrd_iterator_create(&iterator_min,     &c->data, "MIN", interval, graph_width)
+    || -1 == rrd_iterator_create(&iterator_max,     &c->data, "MAX", interval, graph_width))
+      errx(EXIT_FAILURE, "Did not find all required round robin archives in '%s'", c->path);
 
     if(!c->nograph && c->draw)
     {
@@ -1187,22 +1214,18 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         area = 1;
     }
 
-    ca->cur = c->data.values[ca->rra_avg_offset + c->data.rra_ptrs[ca->rra_avg] * c->data.header.ds_count];
-    ca->max_avg = 0.0;
-    ca->min_avg = 0.0;
-    ca->min = 0.0;
-    ca->max = 0.0;
-    ca->avg = 0.0;
+    c->work.cur = rrd_iterator_last(&iterator_average);
+    c->work.max_avg = 0.0;
+    c->work.min_avg = 0.0;
+    c->work.min = 0.0;
+    c->work.max = 0.0;
+    c->work.avg = 0.0;
 
-    size_t avg_skip = c->data.rra_defs[ca->rra_avg].row_count - graph_width + 1;
-    size_t min_skip = c->data.rra_defs[ca->rra_min].row_count - graph_width + 1;
-    size_t max_skip = c->data.rra_defs[ca->rra_max].row_count - graph_width + 1;
-
-    for(i = 0, x = 0; i < c->data.rra_defs[ca->rra_avg].row_count && x < graph_width; ++i, ++x)
+    for(i = 0, x = 0; i < iterator_average.count && x < graph_width; ++i, ++x)
     {
-      double avg_value = c->data.values[ca->rra_avg_offset + ((i + avg_skip + c->data.rra_ptrs[ca->rra_avg]) % c->data.rra_defs[ca->rra_avg].row_count) * c->data.header.ds_count + ds];
-      double min_value = c->data.values[ca->rra_min_offset + ((i + min_skip + c->data.rra_ptrs[ca->rra_min]) % c->data.rra_defs[ca->rra_min].row_count) * c->data.header.ds_count + ds];
-      double max_value = c->data.values[ca->rra_max_offset + ((i + max_skip + c->data.rra_ptrs[ca->rra_max]) % c->data.rra_defs[ca->rra_max].row_count) * c->data.header.ds_count + ds];
+      double avg_value = rrd_iterator_pop(&iterator_average);
+      double min_value = rrd_iterator_pop(&iterator_min);
+      double max_value = rrd_iterator_pop(&iterator_max);
 
       if(!isnan(avg_value))
       {
@@ -1214,22 +1237,24 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
             max = maxs[x];
         }
 
-        ca->avg += avg_value;
+        c->work.avg += avg_value;
+        ++avg_count;
 
-        if(avg_value > ca->max_avg)
-          ca->max_avg = avg_value;
-        else if(avg_value < ca->min_avg)
-          ca->min_avg = avg_value;
+        if(avg_value > c->work.max_avg)
+          c->work.max_avg = avg_value;
+        else if(avg_value < c->work.min_avg)
+          c->work.min_avg = avg_value;
       }
 
-      if(!isnan(max_value) && max_value > ca->max)
-        ca->max = max_value;
+      if(!isnan(max_value) && max_value > c->work.max)
+        c->work.max = max_value;
 
-      if(!isnan(min_value) && min_value < ca->min)
-        ca->min = min_value;
+      if(!isnan(min_value) && min_value < c->work.min)
+        c->work.min = min_value;
     }
 
-    ca->avg /= c->data.rra_defs[ca->rra_avg].row_count;
+    if(avg_count)
+      c->work.avg /= avg_count;
 
     if(!c->nograph)
       ++visible_graph_count;
@@ -1238,19 +1263,13 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     {
       has_negative = 1;
 
-      for(i = 0; i < g->curve_count; ++i)
-      {
-        if(!strcmp(g->curves[i].name, c->negative))
-          break;
-      }
+      c->work.negative = find_curve(g, c->negative);
 
-      if(i == g->curve_count)
+      if(!c->work.negative)
         errx(EXIT_FAILURE, "Negative '%s' for '%s' not found", c->name, c->negative);
-
-      ca->negative = i;
     }
     else
-      ca->negative = (size_t) -1;
+      c->work.negative = 0;
   }
 
   if(visible_graph_count == 1
@@ -1260,43 +1279,42 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   for(curve = 0; curve < g->curve_count; ++curve)
   {
     struct curve* c = &g->curves[curve];
-    struct curve_args* ca = &cas[curve];
 
     if(c->nograph)
       continue;
 
     if(draw_min_max)
     {
-      if(ca->max > max)
-        max = ca->max;
+      if(c->work.max > max)
+        max = c->work.max;
 
-      if(ca->min < min)
-        min = ca->min;
+      if(c->work.min < min)
+        min = c->work.min;
 
-      if(c->negative)
+      if(c->work.negative)
       {
-        if(-cas[ca->negative].max < min)
-          min = -cas[ca->negative].max;
+        if(-c->work.negative->work.max < min)
+          min = -c->work.negative->work.max;
 
-        if(-cas[ca->negative].min > max)
-          max = -cas[ca->negative].min;
+        if(-c->work.negative->work.min > max)
+          max = -c->work.negative->work.min;
       }
     }
     else
     {
-      if(ca->max_avg > max)
-        max = ca->max_avg;
+      if(c->work.max_avg > max)
+        max = c->work.max_avg;
 
-      if(ca->min_avg < min)
-        min = ca->min_avg;
+      if(c->work.min_avg < min)
+        min = c->work.min_avg;
 
       if(c->negative)
       {
-        if(-cas[ca->negative].max_avg < min)
-          min = -cas[ca->negative].max_avg;
+        if(-c->work.negative->work.max_avg < min)
+          min = -c->work.negative->work.max_avg;
 
-        if(-cas[ca->negative].min_avg > max)
-          max = -cas[ca->negative].min_avg;
+        if(-c->work.negative->work.min_avg > max)
+          max = -c->work.negative->work.min_avg;
       }
     }
   }
@@ -1323,9 +1341,6 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   draw_rect(&canvas, graph_x, graph_y, graph_width, graph_height, 0xffffff);
 
-  double step_size = calc_step_size(max - min, graph_height);
-  size_t graph_index = 0;
-
   if(g->title)
   {
     snprintf(buf, sizeof(buf), "%s - by %s", g->title, suffix);
@@ -1335,79 +1350,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     font_draw(&canvas, (canvas.width - width) / 2, 20, buf, 0);
   }
 
-  {
-    const char* format;
-    const char* suffix;
-    double scale;
-
-    number_format_args((fabs(max) > fabs(min)) ? fabs(max) : fabs(min), &format, &suffix, &scale);
-
-    for(j = min / step_size; j <= max / step_size; ++j)
-    {
-      y = graph_height - (j * step_size - min) * (graph_height - 1) / (max - min) - 1;
-
-      sprintf(buf, format, (j * step_size) * scale, suffix);
-
-      font_draw(&canvas, graph_x - 5, graph_y + y + 7, buf, -1);
-
-      if(!j)
-        continue;
-
-      for(x = 0; x < graph_width; x += 2)
-        draw_pixel(&canvas, x + graph_x, y + graph_y, 0xc0c0c0);
-    }
-  }
-
-  struct tm tm_last_update;
-  localtime_r(&last_update, &tm_last_update);
-
-  time_t t = last_update + tm_last_update.tm_gmtoff;
-  time_t prev_t = t + interval;
-
-  for(j = 0; j < graph_width; ++j)
-  {
-    if(ta->label_interval > 0)
-    {
-      if((prev_t - ta->bias) / ta->label_interval != (t - ta->bias) / ta->label_interval)
-      {
-        struct tm tm_tmp;
-
-        gmtime_r(&prev_t, &tm_tmp);
-
-        strftime(buf, sizeof(buf), ta->format, &tm_tmp);
-
-        draw_vline(&canvas, graph_x + graph_width - j, graph_y, graph_y + graph_height, 0xffcccc);
-        font_draw(&canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
-      }
-      else if(ta->bar_interval && (prev_t - ta->bias) / ta->bar_interval != (t - ta->bias) / ta->bar_interval)
-      {
-        draw_vline(&canvas, graph_x + graph_width - j, graph_y, graph_y + graph_height, 0xeeeeee);
-      }
-    }
-    else if(ta->label_interval == INTERVAL_MONTH)
-    {
-      struct tm a, b;
-
-      gmtime_r(&prev_t, &a);
-      gmtime_r(&t, &b);
-
-      if(a.tm_mon != b.tm_mon)
-      {
-        strftime(buf, sizeof(buf), ta->format, &a);
-
-        draw_vline(&canvas, graph_x + graph_width - j, graph_y, graph_y + graph_height, 0xffcccc);
-        font_draw(&canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
-      }
-    }
-
-    prev_t = t;
-    t -= interval;
-  }
-
-  strftime(buf, sizeof(buf), "Last update: %Y-%m-%d %H:%M:%S %Z", &tm_last_update);
-  font_draw(&canvas, canvas.width - 5, canvas.height - 3, buf, -1);
-
-  font_draw(&canvas, canvas.width - 15, 5, "Munin Hardcore/Morten Hustveit", 1);
+  font_draw(&canvas, canvas.width - 15, 5, "Munin Hardcore/Morten Hustveit (test)", 1);
 
   if(g->vlabel)
   {
@@ -1443,74 +1386,125 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   size_t max_label_width = 0;
 
-  y = graph_y + graph_height + 20 + LINE_HEIGHT;
-  memset(maxs, 0, sizeof(double) * graph_width);
-
   if(min != max)
   {
-    for(curve = 0; curve < g->curve_count; ++curve)
+    int pass;
+
+    memset(maxs, 0, sizeof(double) * graph_width);
+
+    for(pass = 0; pass < 2; ++pass)
     {
-      struct curve* c = &g->curves[curve];
-      struct curve_args* ca = &cas[curve];
-      uint32_t color;
+      size_t graph_index = 0;
 
-      if(c->nograph)
-        continue;
+      y = graph_y + graph_height + 20 + LINE_HEIGHT;
 
-      const char* label = c->label ? c->label : c->name;
-      size_t label_width = font_width(label);
+      if(pass == 1)
+        draw_grid(g, &canvas, last_update, interval, min, max, graph_x, graph_y, graph_width, graph_height);
 
-      if(label_width > max_label_width)
-        max_label_width = label_width;
-
-      if(c->has_color)
-        color = c->color;
-      else
-        color = colors[graph_index % (sizeof(colors) / sizeof(colors[0]))];
-
-      if(!c->draw || !strcasecmp(c->draw, "line2"))
+      for(curve = 0; curve < g->curve_count; ++curve)
       {
-        if(draw_min_max)
-        {
-          plot_min_max(&canvas, c, ca, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
-          plot_gauge(&canvas, c, ca, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, 0);
+        struct rrd_iterator iterator_average;
+        struct rrd_iterator iterator_min;
+        struct rrd_iterator iterator_max;
 
-          if(c->negative)
+        struct curve* c = &g->curves[curve];
+        uint32_t color;
+
+        if(c->nograph)
+          continue;
+
+        const char* label = c->label ? c->label : c->name;
+        size_t label_width = font_width(label);
+
+        if(label_width > max_label_width)
+          max_label_width = label_width;
+
+        if(c->has_color)
+          color = c->color;
+        else
+          color = colors[graph_index % (sizeof(colors) / sizeof(colors[0]))];
+
+        rrd_iterator_create(&iterator_average, &c->data, "AVERAGE", interval, graph_width);
+
+        if(!c->draw || !strcasecmp(c->draw, "line2"))
+        {
+          if(pass == 1)
           {
-            plot_min_max(&canvas, &g->curves[ca->negative], &cas[ca->negative], graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
-            plot_gauge(&canvas, &g->curves[ca->negative], &cas[ca->negative], graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, PLOT_NEGATIVE);
+            if(draw_min_max)
+            {
+              rrd_iterator_create(&iterator_min, &c->data, "MIN", interval, graph_width);
+              rrd_iterator_create(&iterator_max, &c->data, "MAX", interval, graph_width);
+
+              plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
+              plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, 0);
+
+              if(c->negative)
+              {
+                const struct curve* cn;
+
+                if(0 != (cn = find_curve(g, c->negative)))
+                {
+                  rrd_iterator_create(&iterator_average, &cn->data, "AVERAGE", interval, graph_width);
+                  rrd_iterator_create(&iterator_min, &cn->data, "MIN", interval, graph_width);
+                  rrd_iterator_create(&iterator_max, &cn->data, "MAX", interval, graph_width);
+
+                  plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
+                  plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, PLOT_NEGATIVE);
+                }
+              }
+            }
+            else
+            {
+              plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
+
+              if(c->negative)
+              {
+                const struct curve* cn;
+
+                if(0 != (cn = find_curve(g, c->negative)))
+                {
+                  rrd_iterator_create(&iterator_average, &cn->data, "AVERAGE", interval, graph_width);
+
+                  plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
+                }
+              }
+            }
           }
         }
-        else
+        else if(!strcasecmp(c->draw, "area"))
         {
-          plot_gauge(&canvas, c, ca, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
+          if(pass == 0)
+          {
+            memset(maxs, 0, sizeof(double) * graph_width);
 
-          if(c->negative)
-            plot_gauge(&canvas, &g->curves[ca->negative], &cas[ca->negative], graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
+            plot_area(&canvas, &iterator_average, maxs, graph_x, graph_y, graph_width, graph_height, min, max, ds, color);
+          }
+        }
+        else if(!strcasecmp(c->draw, "stack") && (pass == 0))
+        {
+          if(pass == 0)
+            plot_area(&canvas, &iterator_average, maxs, graph_x, graph_y, graph_width, graph_height, min, max, ds, color);
         }
 
-      }
-      else if(!strcasecmp(c->draw, "area"))
-      {
-        memset(maxs, 0, sizeof(double) * graph_width);
-        plot_area(&canvas, c, ca, maxs, graph_x, graph_y, graph_width, graph_height, min, max, ds, color);
-      }
-      else if(!strcasecmp(c->draw, "stack"))
-      {
-        plot_area(&canvas, c, ca, maxs, graph_x, graph_y, graph_width, graph_height, min, max, ds, color);
-      }
+        if(pass == 0)
+        {
+          draw_rect(&canvas, 10, y,  6, 6, draw_min_max ? ((color >> 1) & 0x7f7f7f) : color);
+          draw_line(&canvas,  9, y - 1, 17, y - 1, 0);
+          draw_line(&canvas,  9, y + 6, 17, y + 6, 0);
+          draw_vline(&canvas,  9, y, y + 6, 0);
+          draw_vline(&canvas, 16, y, y + 6, 0);
 
-      draw_rect(&canvas, 10, y,  6, 6, draw_min_max ? ((color >> 1) & 0x7f7f7f) : color);
-      draw_line(&canvas,  9, y - 1, 17, y - 1, 0);
-      draw_line(&canvas,  9, y + 6, 17, y + 6, 0);
-      draw_vline(&canvas,  9, y, y + 6, 0);
-      draw_vline(&canvas, 16, y, y + 6, 0);
+          font_draw(&canvas, 22, y + 9, c->label ? c->label : c->name, 0);
+        }
 
-      font_draw(&canvas, 22, y + 9, c->label ? c->label : c->name, 0);
-
-      ++graph_index;
-      y += LINE_HEIGHT;
+        ++graph_index;
+        y += LINE_HEIGHT;
+      }
     }
+  }
+  else
+  {
+    y = graph_y + graph_height + 20 + LINE_HEIGHT;
   }
 
   if(g->total)
@@ -1534,48 +1528,45 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   font_draw(&canvas, x + column_width * 4, y + 9, has_negative ? "Max (-/+)" : "Max", -1);
   y += LINE_HEIGHT;
 
-  struct curve_args totals[2];
+  double totals[4][2];
   memset(&totals, 0, sizeof(totals));
 
   for(curve = 0; curve < g->curve_count; ++curve)
   {
     struct curve* c = &g->curves[curve];
-    struct curve_args* ca = &cas[curve];
 
     if(c->nograph)
       continue;
 
-    if(c->negative)
+    if(c->work.negative)
     {
-      struct curve_args* nca = &cas[ca->negative];
+      print_numbers(&canvas, x + column_width * 1, y + 9, c->work.negative->work.cur, c->work.cur);
+      print_numbers(&canvas, x + column_width * 2, y + 9, c->work.negative->work.min, c->work.min);
+      print_numbers(&canvas, x + column_width * 3, y + 9, c->work.negative->work.avg, c->work.avg);
+      print_numbers(&canvas, x + column_width * 4, y + 9, c->work.negative->work.max, c->work.max);
 
-      print_numbers(&canvas, x + column_width * 1, y + 9, nca->cur, ca->cur);
-      print_numbers(&canvas, x + column_width * 2, y + 9, nca->min, ca->min);
-      print_numbers(&canvas, x + column_width * 3, y + 9, nca->avg, ca->avg);
-      print_numbers(&canvas, x + column_width * 4, y + 9, nca->max, ca->max);
-
-      totals[1].cur += nca->cur;
-      totals[1].min += nca->min;
-      totals[1].avg += nca->avg;
-      totals[1].max += nca->max;
+      totals[0][1] += c->work.negative->work.cur;
+      totals[1][1] += c->work.negative->work.min;
+      totals[2][1] += c->work.negative->work.avg;
+      totals[3][1] += c->work.negative->work.max;
     }
     else
     {
-      if(c->critical && ca->cur > c->critical)
+      if(c->critical && c->work.cur > c->critical)
         draw_rect(&canvas, x, y - 4, column_width + 2, LINE_HEIGHT, 0xff7777);
-      else if(c->warning && ca->cur > c->warning)
+      else if(c->warning && c->work.cur > c->warning)
         draw_rect(&canvas, x, y - 4, column_width + 2, LINE_HEIGHT, 0xffff77);
 
-      print_number(&canvas, x + column_width * 1, y + 9, ca->cur);
-      print_number(&canvas, x + column_width * 2, y + 9, ca->min);
-      print_number(&canvas, x + column_width * 3, y + 9, ca->avg);
-      print_number(&canvas, x + column_width * 4, y + 9, ca->max);
+      print_number(&canvas, x + column_width * 1, y + 9, c->work.cur);
+      print_number(&canvas, x + column_width * 2, y + 9, c->work.min);
+      print_number(&canvas, x + column_width * 3, y + 9, c->work.avg);
+      print_number(&canvas, x + column_width * 4, y + 9, c->work.max);
     }
 
-    totals[0].cur += ca->cur;
-    totals[0].min += ca->min;
-    totals[0].avg += ca->avg;
-    totals[0].max += ca->max;
+    totals[0][0] += c->work.cur;
+    totals[1][0] += c->work.min;
+    totals[2][0] += c->work.avg;
+    totals[3][0] += c->work.max;
 
     y += LINE_HEIGHT;
   }
@@ -1584,17 +1575,17 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   {
     if(has_negative)
     {
-      print_numbers(&canvas, x + column_width * 1, y + 9, totals[1].cur, totals[0].cur);
-      print_numbers(&canvas, x + column_width * 2, y + 9, totals[1].min, totals[0].min);
-      print_numbers(&canvas, x + column_width * 3, y + 9, totals[1].avg, totals[0].avg);
-      print_numbers(&canvas, x + column_width * 4, y + 9, totals[1].max, totals[0].max);
+      print_numbers(&canvas, x + column_width * 1, y + 9, totals[0][1], totals[0][0]);
+      print_numbers(&canvas, x + column_width * 2, y + 9, totals[1][1], totals[1][0]);
+      print_numbers(&canvas, x + column_width * 3, y + 9, totals[2][1], totals[2][0]);
+      print_numbers(&canvas, x + column_width * 4, y + 9, totals[3][1], totals[3][0]);
     }
     else
     {
-      print_number(&canvas, x + column_width * 1, y + 9, totals[0].cur);
-      print_number(&canvas, x + column_width * 2, y + 9, totals[0].min);
-      print_number(&canvas, x + column_width * 3, y + 9, totals[0].avg);
-      print_number(&canvas, x + column_width * 4, y + 9, totals[0].max);
+      print_number(&canvas, x + column_width * 1, y + 9, totals[0][0]);
+      print_number(&canvas, x + column_width * 2, y + 9, totals[1][0]);
+      print_number(&canvas, x + column_width * 3, y + 9, totals[2][0]);
+      print_number(&canvas, x + column_width * 4, y + 9, totals[3][0]);
     }
   }
 

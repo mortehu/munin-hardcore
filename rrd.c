@@ -212,3 +212,39 @@ rrd_free(struct rrd* data)
 
   memset(data, 0, sizeof(struct rrd));
 }
+
+int
+rrd_iterator_create(struct rrd_iterator* result, const struct rrd* data,
+                    const char* cf_name, size_t interval,
+                    size_t max_count)
+{
+  size_t rra;
+  size_t offset = 0;
+
+  interval /= data->header.pdp_step;
+
+  for(rra = 0; rra < data->header.rra_count; ++rra)
+  {
+    if(data->rra_defs[rra].pdp_count == interval
+    && !strcmp(data->rra_defs[rra].cf_name, cf_name))
+    {
+      result->ds = 0;
+      result->values = data->values;
+      result->offset = offset;
+      result->count = data->rra_defs[rra].row_count;
+      result->first = (data->rra_ptrs[rra] + 1) % result->count;
+      result->step = data->header.ds_count;
+
+      if(result->count > max_count)
+        result->current_position = result->count - max_count;
+      else
+        result->current_position = 0;
+
+      return 0;
+    }
+
+    offset += data->rra_defs[rra].row_count * data->header.ds_count;
+  }
+
+  return -1;
+}
