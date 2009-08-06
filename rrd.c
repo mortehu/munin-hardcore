@@ -17,25 +17,30 @@
 
 #include <err.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "rrd.h"
 
 int
 rrd_parse(struct rrd* result, const char* filename)
 {
-  FILE* f;
+  off_t file_size;
   size_t i, data_size = 0;
+  void* data;
+  unsigned char* input;
+  unsigned char* end;
+  int fd;
 
   /* To facilitate free-ing of incompletely loaded RRDs */
   memset(result, 0, sizeof(struct rrd));
 
-  f = fopen(filename, "r");
-
-  if(!f)
+  if(-1 == (fd = open(filename, O_RDONLY)))
   {
     /* Silently ignore ENOENT like munin-graph does */
     if(errno == ENOENT)
@@ -46,18 +51,47 @@ rrd_parse(struct rrd* result, const char* filename)
     return -1;
   }
 
-  if(1 != fread(&result->header, sizeof(result->header), 1, f))
+  if(-1 == (file_size = lseek(fd, 0, SEEK_END)))
   {
-    fprintf(stderr, "Error reading header from '%s': %s\n", filename, strerror(errno));
+    fprintf(stderr, "Seek failed on '%s': %s\n", filename, strerror(errno));
+
+    close(fd);
 
     return -1;
   }
 
-  if(memcmp("RRD", result->header.cookie, 4))
+  data = mmap(0, file_size,  PROT_READ, MAP_SHARED, fd, 0);
+  madvise(data, file_size, MADV_WILLNEED);
+
+  close(fd);
+
+  if(data == MAP_FAILED)
   {
-    fprintf(stderr, "Incorrect cookie in '%s'\n", filename);
+    fprintf(stderr, "Memory map failed on '%s': %s\n", filename, strerror(errno));
 
     return -1;
+  }
+
+  input = (unsigned char*) data;
+  end = input + file_size;
+
+#define test_end(offset, label) \
+  if((offset) > end)            \
+  {                             \
+    fprintf(stderr, "Unexpected end-of-file in %s in RRD file '%s'\n", label, filename); \
+    goto fail;                  \
+  }
+
+  test_end(input + sizeof(result->header), "header");
+
+  memcpy(&result->header, data, sizeof(result->header));
+  input += sizeof(result->header);
+
+  if(memcmp("RRD", result->header.cookie, 4))
+  {
+    fprintf(stderr, "Incorrect cookie in '%s'.  Expected \"RRD\" at offset 0\n", filename);
+
+    goto fail;
   }
 
   int version = (result->header.version[0] - '0') * 1000
@@ -66,23 +100,22 @@ rrd_parse(struct rrd* result, const char* filename)
               + (result->header.version[3] - '0');
 
   if(version < 1 || version > 3)
-    fprintf(stderr, "Unsupported RRD version in '%s'\n", filename);
+  {
+    fprintf(stderr, "Unsupported RRD version %d in '%s'.  Version 1, 2 and 3 supported.\n", version, filename);
+
+    goto fail;
+  }
 
   if(result->header.float_cookie != 8.642135E130)
   {
     fprintf(stderr, "Floating point sanity test failed for '%s'\n", filename);
 
-    return -1;
+    goto fail;
   }
 
-  result->ds_defs = malloc(sizeof(struct ds_def) * result->header.ds_count);
-
-  if(result->header.ds_count != fread(result->ds_defs, sizeof(struct ds_def), result->header.ds_count, f))
-  {
-    fprintf(stderr, "Error reading data source definitions from '%s': %s\n", filename, strerror(errno));
-
-    return -1;
-  }
+  result->ds_defs = (void*) input;
+  input += sizeof(struct ds_def) * result->header.ds_count;
+  test_end(input, "data source definitions");
 
   for(i = 0; i < result->header.ds_count; ++i)
   {
@@ -90,14 +123,13 @@ rrd_parse(struct rrd* result, const char* filename)
     {
       fprintf(stderr, "Missing NUL-termination in data source definition strings in '%s'\n", filename);
 
-      return -1;
+      goto fail;
     }
   }
 
-  result->rra_defs = malloc(sizeof(struct rra_def) * result->header.rra_count);
-
-  if(result->header.rra_count != fread(result->rra_defs, sizeof(struct rra_def), result->header.rra_count, f))
-    fprintf(stderr, "Error reading rr-archive definitions from '%s': %s\n", filename, strerror(errno));
+  result->rra_defs = (void*) input;
+  input += sizeof(struct rra_def) * result->header.rra_count;
+  test_end(input, "RRA definitions");
 
   for(i = 0; i < result->header.rra_count; ++i)
   {
@@ -105,86 +137,78 @@ rrd_parse(struct rrd* result, const char* filename)
     {
       fprintf(stderr, "Missing NUL-termination in rr-archive definition string in '%s'\n", filename);
 
-      return -1;
+      goto fail;
     }
   }
 
   if(version >= 3)
   {
-    if(1 != fread(&result->live_header, sizeof(result->live_header), 1, f))
-    {
-      fprintf(stderr, "Error reading live header from '%s': %s\n", filename, strerror(errno));
+    test_end(input + sizeof(result->live_header), "live header");
 
-      return -1;
-    }
+    memcpy(&result->live_header, input, sizeof(result->live_header));
+    input += sizeof(result->live_header);
   }
   else
   {
     time_t val;
 
-    if(1 != fread(&val, sizeof(val), 1, f))
-    {
-      fprintf(stderr, "Error reading live header from '%s': %s\n", filename, strerror(errno));
+    test_end(input + sizeof(val), "live header");
 
-      return -1;
-    }
+    memcpy(&val, input, sizeof(val));
+    input += sizeof(val);
 
     result->live_header.last_up = val;
     result->live_header.last_up_usec = 0;
   }
 
-  result->pdp_preps = malloc(sizeof(struct pdp_prepare) * result->header.ds_count);
-
-  if(result->header.ds_count != fread(result->pdp_preps, sizeof(struct pdp_prepare), result->header.ds_count, f))
-  {
-    fprintf(stderr, "Error reading PDP preps from '%s': %s\n", filename, strerror(errno));
-
-    return -1;
-  }
+  result->pdp_preps = (void*) input;
+  input += sizeof(*result->pdp_preps) * result->header.ds_count;
+  test_end(input, "PDP prepares");
 
   i = result->header.ds_count * result->header.rra_count;
-  result->cdp_preps = malloc(sizeof(struct cdp_prepare) * i);
 
-  if(i != fread(result->cdp_preps, sizeof(struct cdp_prepare), i, f))
-  {
-    fprintf(stderr, "Error reading CDP preps from '%s': %s\n", filename, strerror(errno));
+  result->cdp_preps = (void*) input;
+  input += sizeof(*result->cdp_preps) * i;
+  test_end(input, "CDP prepares");
 
-    return -1;
-  }
-
-  result->rra_ptrs = malloc(sizeof(*result->rra_ptrs) * result->header.rra_count);
-
-  if(result->header.rra_count != fread(result->rra_ptrs, sizeof(*result->rra_ptrs), result->header.rra_count, f))
-  {
-    fprintf(stderr, "Error reading RRA pointers from '%s': %s\n", filename, strerror(errno));
-
-    return -1;
-  }
+  result->rra_ptrs = (void*) input;
+  input += sizeof(*result->rra_ptrs) * result->header.rra_count;
+  test_end(input, "RRA pointers");
 
   for(i = 0; i < result->header.rra_count; ++i)
     data_size += result->rra_defs[i].row_count * result->header.ds_count;
 
-  result->values = malloc(sizeof(double) * data_size);
+  result->values = (void*) input;
+  input += data_size * sizeof(*result->values);
 
-  if(data_size != fread(result->values, sizeof(double), data_size, f))
+  test_end(input, "value list");
+
+  if(input != end)
   {
-    fprintf(stderr, "Error reading %zu values from '%s': %s\n", data_size, filename, strerror(errno));
+    fprintf(stderr, "Unexpected file size for '%s': Got %zu, but expected %zu\n",
+            filename, (end - (unsigned char*) data), (input - (unsigned char*) data));
 
-    return -1;
+    goto fail;
   }
 
-  fclose(f);
+  result->data = data;
+  result->file_size = file_size;
 
   return 0;
+
+fail:
+
+  munmap(data, file_size);
+  memset(result, 0, sizeof(struct rrd));
+
+  return -1;
 }
 
 void
 rrd_free(struct rrd* data)
 {
-  free(data->ds_defs);
-  free(data->rra_defs);
-  free(data->pdp_preps);
-  free(data->cdp_preps);
-  free(data->rra_ptrs);
-  free(data->values);
+  if(data->file_size)
+    munmap(data->data, data->file_size);
+
+  memset(data, 0, sizeof(struct rrd));
 }

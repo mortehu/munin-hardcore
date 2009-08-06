@@ -54,6 +54,9 @@ struct cdp_prepare
 
 struct rrd
 {
+  void* data;
+  off_t file_size;
+
   struct rrd_header header;
   struct ds_def* ds_defs;
   struct rra_def* rra_defs;
