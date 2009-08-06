@@ -1090,7 +1090,7 @@ draw_grid(struct graph* g, struct canvas* canvas,
       continue;
 
     for(x = 0; x < graph_width; x += 2)
-      draw_pixel(canvas, x + graph_x, y + graph_y, 0xc0c0c0);
+      draw_pixel_50(canvas, x + graph_x, y + graph_y, 0xaaaaaa);
   }
 
   for(j = 0; j < graph_width; ++j)
@@ -1105,15 +1105,15 @@ draw_grid(struct graph* g, struct canvas* canvas,
 
         strftime(buf, sizeof(buf), ta->format, &tm_tmp);
 
-        for(y = 0; y < graph_height; y += 2)
-          draw_pixel(canvas, graph_x + graph_width - j, y + graph_y, 0xffcccc);
+        for(y = 0; y < graph_height; ++y)
+          draw_pixel_50(canvas, graph_x + graph_width - j, y + graph_y, 0xaa8888);
 
         font_draw(canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
       }
       else if(ta->bar_interval && (prev_t - ta->bias) / ta->bar_interval != (t - ta->bias) / ta->bar_interval)
       {
         for(y = 0; y < graph_height; y += 2)
-          draw_pixel(canvas, graph_x + graph_width - j, y + graph_y, 0xeeeeee);
+          draw_pixel_50(canvas, graph_x + graph_width - j, y + graph_y, 0xaaaaaa);
       }
     }
     else if(ta->label_interval == INTERVAL_MONTH)
@@ -1127,8 +1127,8 @@ draw_grid(struct graph* g, struct canvas* canvas,
       {
         strftime(buf, sizeof(buf), ta->format, &a);
 
-        for(y = 0; y < graph_height; y += 2)
-          draw_pixel(canvas, graph_x + graph_width - j, y + graph_y, 0xffcccc);
+        for(y = 0; y < graph_height; ++y)
+          draw_pixel_50(canvas, graph_x + graph_width - j, y + graph_y, 0xaa8888);
 
         font_draw(canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
       }
@@ -1428,45 +1428,53 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
         if(!c->draw || !strcasecmp(c->draw, "line2"))
         {
-          if(pass == 1)
+          if(draw_min_max)
           {
-            if(draw_min_max)
+            if(pass == 0)
             {
               rrd_iterator_create(&iterator_min, &c->data, "MIN", interval, graph_width);
               rrd_iterator_create(&iterator_max, &c->data, "MAX", interval, graph_width);
 
               plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
+            }
+            else
               plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, 0);
 
-              if(c->negative)
-              {
-                const struct curve* cn;
+            if(c->negative)
+            {
+              const struct curve* cn;
 
-                if(0 != (cn = find_curve(g, c->negative)))
+              if(0 != (cn = find_curve(g, c->negative)))
+              {
+                if(pass == 0)
                 {
-                  rrd_iterator_create(&iterator_average, &cn->data, "AVERAGE", interval, graph_width);
                   rrd_iterator_create(&iterator_min, &cn->data, "MIN", interval, graph_width);
                   rrd_iterator_create(&iterator_max, &cn->data, "MAX", interval, graph_width);
 
                   plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
+                }
+                else
+                {
+                  rrd_iterator_create(&iterator_average, &cn->data, "AVERAGE", interval, graph_width);
+
                   plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, PLOT_NEGATIVE);
                 }
               }
             }
-            else
+          }
+          else if(pass == 1)
+          {
+            plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
+
+            if(c->negative)
             {
-              plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
+              const struct curve* cn;
 
-              if(c->negative)
+              if(0 != (cn = find_curve(g, c->negative)))
               {
-                const struct curve* cn;
+                rrd_iterator_create(&iterator_average, &cn->data, "AVERAGE", interval, graph_width);
 
-                if(0 != (cn = find_curve(g, c->negative)))
-                {
-                  rrd_iterator_create(&iterator_average, &cn->data, "AVERAGE", interval, graph_width);
-
-                  plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
-                }
+                plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
               }
             }
           }
@@ -1504,7 +1512,10 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   }
   else
   {
+    min = 0.0;
+    max = 1.0;
     y = graph_y + graph_height + 20 + LINE_HEIGHT;
+    draw_grid(g, &canvas, last_update, interval, min, max, graph_x, graph_y, graph_width, graph_height);
   }
 
   if(g->total)

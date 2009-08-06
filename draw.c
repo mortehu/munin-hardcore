@@ -163,3 +163,13 @@ draw_pixel(struct canvas* canvas, size_t x, size_t y, uint32_t color)
   canvas->data[i + 1] = color >> 8;
   canvas->data[i + 2] = color;
 }
+
+void
+draw_pixel_50(struct canvas* canvas, size_t x, size_t y, uint32_t color)
+{
+  size_t i = (y * canvas->width + x) * 3;
+
+  canvas->data[i + 0] = (canvas->data[i + 0] >> 1) + (color >> 17);
+  canvas->data[i + 1] = (canvas->data[i + 1] >> 1) + ((color >> 9) & 0x7f);
+  canvas->data[i + 2] = (canvas->data[i + 2] >> 1) + ((color >> 1) & 0x7f);
+}
