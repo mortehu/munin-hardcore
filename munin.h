@@ -21,7 +21,10 @@ struct curve
   uint32_t color;
   int has_color;
 
-  double max, min, warning, critical;
+  double max, min;
+  int has_min, has_max;
+
+  double warning, critical;
 
   struct
   {

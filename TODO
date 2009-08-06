@@ -1,4 +1,3 @@
 - Parse graph_args
 - Parse graph_scale
-- Use max and min from datafile
 - Support cdef

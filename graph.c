@@ -411,12 +411,14 @@ void parse_datafile(char* in)
           case key_max:
 
             c->max = strtod(value_start, 0);
+            c->has_max = 1;
 
             break;
 
           case key_min:
 
             c->min = strtod(value_start, 0);
+            c->has_min = 1;
 
             break;
 
@@ -1282,6 +1284,9 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
     if(c->nograph)
       continue;
+
+    if(c->has_max && c->max > max)
+      c->max = max;
 
     if(draw_min_max)
     {
