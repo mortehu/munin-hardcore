@@ -1,4 +1,3 @@
-#include <assert.h>
 /*  Entry point for munin-hardcore-graph.
     Copyright (C) 2009  Morten Hustveit <morten@rashbox.org>
 
@@ -84,6 +83,9 @@ cdef_create_iterator(struct rrd_iterator* result, struct graph* g, struct curve*
 int
 cdef_compile(struct cdef_script* target, struct graph* g, const char* string);
 
+const struct curve*
+find_curve(const struct graph* g, const char* name);
+
 static struct graph* graphs;
 static size_t graph_count;
 static size_t graph_alloc;
@@ -99,8 +101,8 @@ static const char* logdir = "/var/log/munin";
 #define MAX_DIM 2048
 #define LINE_HEIGHT 14
 
-size_t
-graph_index(const char* domain, const char* host, const char* name)
+ssize_t
+graph_index(const char* domain, const char* host, const char* name, int create)
 {
   size_t i;
 
@@ -111,6 +113,9 @@ graph_index(const char* domain, const char* host, const char* name)
     && !strcmp(graphs[i].name, name))
       return i;
   }
+
+  if(!create)
+    return -1;
 
   i = graph_count;
 
@@ -161,8 +166,6 @@ curve_index(struct graph* graph, const char* name)
   return i;
 }
 
-static const char* graph_order;
-
 const char*
 strword(const char* haystack, const char* needle)
 {
@@ -174,7 +177,7 @@ strword(const char* haystack, const char* needle)
   while(tmp)
   {
     if((tmp == haystack || isspace(tmp[-1]))
-    && (tmp[needle_length] == 0 || isspace(tmp[needle_length])))
+    && (tmp[needle_length] == 0 || tmp[needle_length] == '=' || isspace(tmp[needle_length])))
       return tmp;
 
     tmp = strstr(tmp + 1, needle);
@@ -182,6 +185,8 @@ strword(const char* haystack, const char* needle)
 
   return 0;
 }
+
+static const char* graph_order;
 
 int
 curve_name_cmp(const void* plhs, const void* prhs)
@@ -343,7 +348,7 @@ void parse_datafile(char* in)
         graph_key = graph_end + 1;
         *graph_end = 0;
 
-        graph = graph_index(key_start, host_start, graph_start);
+        graph = graph_index(key_start, host_start, graph_start, 1);
         g = &graphs[graph];
 
         if(0 != (tmp = strchr(graph_key, '.')))
@@ -702,26 +707,67 @@ main(int argc, char** argv)
     {
       struct curve* c = &g->curves[curve];
 
+      const struct graph* eff_g = g;
+      const struct curve* eff_c = c;
+
+      if(g->order)
+      {
+        const char* ch;
+        char* curve_name;
+
+        ch = strword(g->order, c->name);
+
+        if(ch[strlen(c->name)] == '=')
+        {
+          curve_name = strdupa(ch + strlen(c->name) + 1);
+
+          if(strchr(curve_name, ' '))
+            *strchr(curve_name, ' ' ) = 0;
+
+          if(strchr(curve_name, '.'))
+          {
+            char* graph_name;
+            ssize_t eff_graph_index;
+
+            graph_name = curve_name;
+            curve_name = strchr(graph_name, '.');
+            *curve_name++ = 0;
+
+            eff_graph_index = graph_index(g->domain, g->host, graph_name, 0);
+
+            if(eff_graph_index == -1)
+              goto skip_data_source;
+
+            eff_g = &graphs[eff_graph_index];
+          }
+
+          if(0 == (eff_c = find_curve(eff_g, curve_name)))
+            goto skip_data_source;
+        }
+      }
+
       int suffix;
 
-      if(!c->type || !strcasecmp(c->type, "gauge"))
+      if(!eff_c->type || !strcasecmp(eff_c->type, "gauge"))
         suffix = 'g';
-      else if(!strcasecmp(c->type, "derive"))
+      else if(!strcasecmp(eff_c->type, "derive"))
         suffix = 'd';
-      else if(!strcasecmp(c->type, "counter"))
+      else if(!strcasecmp(eff_c->type, "counter"))
         suffix = 'c';
-      else if(!strcasecmp(c->type, "absolute"))
+      else if(!strcasecmp(eff_c->type, "absolute"))
         suffix = 'a';
       else
-        errx(EXIT_FAILURE, "Unknown curve type '%s'", c->type);
+        errx(EXIT_FAILURE, "Unknown curve type '%s'", eff_c->type);
 
-      if(-1 == asprintf(&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, g->domain, g->host, g->name, c->name, suffix))
+      if(-1 == asprintf(&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, eff_g->domain, eff_g->host, eff_g->name, eff_c->name, suffix))
         errx(EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror(errno));
 
       if(-1 == rrd_parse(&c->data, c->path) && !c->cdef)
       {
+skip_data_source:
+
         if(debug)
-          fprintf(stderr, "Skipping data source %s\n", c->path);
+          fprintf(stderr, "Skipping data source %s.%s.%s.%s\n", g->domain, g->host, g->name, c->name);
 
 	free(c->path);
 
@@ -1042,6 +1088,31 @@ pmkdir(const char* path, int mode)
     }
 
     *t++ = '/';
+  }
+
+  return 0;
+}
+
+int
+find_curve_global(const struct graph** g, const struct curve** c, const char* graph_name, const char* curve_name)
+{
+  size_t i, j;
+
+  for(j = 0; j < graph_count; ++j)
+  {
+    if(strcmp(graphs[j].name, graph_name))
+      continue;
+
+    for(i = 0; i < graphs[j].curve_count; ++i)
+    {
+      if(!strcmp(graphs[j].curves[i].name, curve_name))
+      {
+        *g = &graphs[j];
+        *c = &graphs[j].curves[i];
+
+        return 1;
+      }
+    }
   }
 
   return 0;
