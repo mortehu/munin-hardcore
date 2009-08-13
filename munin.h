@@ -3,6 +3,28 @@
 
 #include "rrd.h"
 
+enum cdef_token_type
+{
+  cdef_plus, cdef_minus, cdef_mul, cdef_div, cdef_IF, cdef_UN, cdef_TIME,
+  cdef_LE, cdef_GE, cdef_constant, cdef_curve
+};
+
+struct cdef_token
+{
+  enum cdef_token_type type;
+
+  union
+  {
+    double constant;
+    const struct curve* curve;
+  } v;
+};
+
+struct cdef_script
+{
+  struct cdef_token* tokens;
+  size_t token_count;
+};
 
 struct curve
 {
@@ -28,9 +50,15 @@ struct curve
 
   struct
   {
+    struct cdef_script script;
+
     double cur, max, min, avg;
     double max_avg, min_avg;
     const struct curve* negative;
+
+    struct rrd_iterator iterator_average;
+    struct rrd_iterator iterator_min;
+    struct rrd_iterator iterator_max;
   } work;
 };
 

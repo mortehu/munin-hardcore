@@ -85,16 +85,18 @@ struct rrd_iterator
   size_t step;
 
   size_t current_position;
+
+  double (*generator)(size_t index, void* arg);
+  void* generator_arg;
 };
 
-#define rrd_iterator_pop(i) \
-    ((i)->values[(i)->offset + (((i)->current_position++ + (i)->first) % (i)->count) * (i)->step + (i)->ds])
+#define rrd_iterator_peek_index(i, index) \
+    ((i)->generator ? (i)->generator(index, (i)->generator_arg) \
+                    : ((i)->values[(i)->offset + ((index + (i)->first) % (i)->count) * (i)->step + (i)->ds]))
 
-#define rrd_iterator_peek(i) \
-    ((i)->values[(i)->offset + (((i)->current_position + (i)->first) % (i)->count) * (i)->step + (i)->ds])
+#define rrd_iterator_peek(i) rrd_iterator_peek_index(i, (i)->current_position)
 
-#define rrd_iterator_last(i) \
-    ((i)->values[(i)->offset + (((i)->current_position + (i)->first + ((i)->count - 1)) % (i)->count) * (i)->step + (i)->ds])
+#define rrd_iterator_last(i) rrd_iterator_peek_index(i, (i)->count - 1)
 
 #define rrd_iterator_advance(i) \
     do { ++(i)->current_position; } while(0)

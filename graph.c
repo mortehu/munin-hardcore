@@ -75,6 +75,9 @@ static const uint32_t colors[] =
 void
 do_graph(struct graph* g, size_t interval, const char* suffix);
 
+void
+compile_cdef(struct cdef_script* target, struct graph* g, const char* string);
+
 static struct graph* graphs;
 static size_t graph_count;
 static size_t graph_alloc;
@@ -714,13 +717,16 @@ main(int argc, char** argv)
         if(debug)
           fprintf(stderr, "Skipping data source %s\n", c->path);
 
-	free(g->curves[curve].path);
+	free(c->path);
 
 	--g->curve_count;
 	memmove(&g->curves[curve], &g->curves[curve + 1], sizeof(struct curve) * (g->curve_count - curve));
 
 	continue;
       }
+
+      if(c->cdef)
+        compile_cdef(&c->work.script, g, c->cdef);
 
       ++curve;
     }
@@ -757,6 +763,7 @@ main(int argc, char** argv)
       for(curve = 0; curve < g->curve_count; ++curve)
       {
 	rrd_free(&g->curves[curve].data);
+        free(g->curves[curve].work.script.tokens);
 	free(g->curves[curve].path);
       }
     }
@@ -795,7 +802,8 @@ plot_gauge(struct canvas* canvas,
 
   for(i = 0; i < iterator->count && x < width; ++i, ++x)
   {
-    double value = rrd_iterator_pop(iterator);
+    double value = rrd_iterator_peek(iterator);
+    rrd_iterator_advance(iterator);
 
     if(isnan(value))
     {
@@ -831,8 +839,10 @@ plot_min_max(struct canvas* canvas,
 
   for(i = 0; i < mins->count && i < maxs->count && x < width; ++i, ++x)
   {
-    double min_value = rrd_iterator_pop(mins);
-    double max_value = rrd_iterator_pop(maxs);
+    double min_value = rrd_iterator_peek(mins);
+    double max_value = rrd_iterator_peek(maxs);
+    rrd_iterator_advance(mins);
+    rrd_iterator_advance(maxs);
 
     if(isnan(min_value) || isnan(max_value))
       continue;
@@ -863,7 +873,8 @@ plot_area(struct canvas* canvas,
 
   for(i = 0; i < iterator->count && x < width; ++i, ++x)
   {
-    double value = rrd_iterator_pop(iterator);
+    double value = rrd_iterator_peek(iterator);
+    rrd_iterator_advance(iterator);
 
     if(isnan(value))
       continue;
@@ -1192,6 +1203,8 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     struct curve* c = &g->curves[curve];
     int area = 0;
 
+    memset(&c->work, 0, sizeof(c->work));
+
     struct rrd_iterator iterator_average;
     struct rrd_iterator iterator_min;
     struct rrd_iterator iterator_max;
@@ -1200,9 +1213,9 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     if(c->data.live_header.last_up > last_update)
       last_update = c->data.live_header.last_up;
 
-    if(-1 == rrd_iterator_create(&iterator_average, &c->data, "AVERAGE", interval, graph_width)
-    || -1 == rrd_iterator_create(&iterator_min,     &c->data, "MIN", interval, graph_width)
-    || -1 == rrd_iterator_create(&iterator_max,     &c->data, "MAX", interval, graph_width))
+    if(-1 == rrd_iterator_create(&c->work.iterator_average, &c->data, "AVERAGE", interval, graph_width)
+    || -1 == rrd_iterator_create(&c->work.iterator_min,     &c->data, "MIN",     interval, graph_width)
+    || -1 == rrd_iterator_create(&c->work.iterator_max,     &c->data, "MAX",     interval, graph_width))
       errx(EXIT_FAILURE, "Did not find all required round robin archives in '%s'", c->path);
 
     if(!c->nograph && c->draw)
@@ -1216,6 +1229,10 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         area = 1;
     }
 
+    iterator_average = c->work.iterator_average;
+    iterator_min = c->work.iterator_min;
+    iterator_max = c->work.iterator_max;
+
     c->work.cur = rrd_iterator_last(&iterator_average);
     c->work.max_avg = 0.0;
     c->work.min_avg = 0.0;
@@ -1225,9 +1242,13 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
     for(i = 0, x = 0; i < iterator_average.count && x < graph_width; ++i, ++x)
     {
-      double avg_value = rrd_iterator_pop(&iterator_average);
-      double min_value = rrd_iterator_pop(&iterator_min);
-      double max_value = rrd_iterator_pop(&iterator_max);
+      double avg_value = rrd_iterator_peek(&iterator_average);
+      double min_value = rrd_iterator_peek(&iterator_min);
+      double max_value = rrd_iterator_peek(&iterator_max);
+
+      rrd_iterator_advance(&iterator_average);
+      rrd_iterator_advance(&iterator_min);
+      rrd_iterator_advance(&iterator_max);
 
       if(!isnan(avg_value))
       {
@@ -1355,7 +1376,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     font_draw(&canvas, (canvas.width - width) / 2, 20, buf, 0);
   }
 
-  font_draw(&canvas, canvas.width - 15, 5, "Munin Hardcore/Morten Hustveit (test)", 1);
+  font_draw(&canvas, canvas.width - 15, 5, "Munin Hardcore/Morten Hustveit", 1);
 
   if(g->vlabel)
   {
@@ -1429,7 +1450,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         else
           color = colors[graph_index % (sizeof(colors) / sizeof(colors[0]))];
 
-        rrd_iterator_create(&iterator_average, &c->data, "AVERAGE", interval, graph_width);
+        iterator_average = c->work.iterator_average;
 
         if(!c->draw || !strcasecmp(c->draw, "line2"))
         {
@@ -1437,33 +1458,28 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
           {
             if(pass == 0)
             {
-              rrd_iterator_create(&iterator_min, &c->data, "MIN", interval, graph_width);
-              rrd_iterator_create(&iterator_max, &c->data, "MAX", interval, graph_width);
+              iterator_min = c->work.iterator_min;
+              iterator_max = c->work.iterator_max;
 
               plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
             }
             else
               plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, 0);
 
-            if(c->negative)
+            if(c->work.negative)
             {
-              const struct curve* cn;
-
-              if(0 != (cn = find_curve(g, c->negative)))
+              if(pass == 0)
               {
-                if(pass == 0)
-                {
-                  rrd_iterator_create(&iterator_min, &cn->data, "MIN", interval, graph_width);
-                  rrd_iterator_create(&iterator_max, &cn->data, "MAX", interval, graph_width);
+                iterator_min = c->work.negative->work.iterator_min;
+                iterator_max = c->work.negative->work.iterator_max;
 
-                  plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
-                }
-                else
-                {
-                  rrd_iterator_create(&iterator_average, &cn->data, "AVERAGE", interval, graph_width);
+                plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
+              }
+              else
+              {
+                iterator_average = c->work.negative->work.iterator_average;
 
-                  plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, PLOT_NEGATIVE);
-                }
+                plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, PLOT_NEGATIVE);
               }
             }
           }
@@ -1471,16 +1487,11 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
           {
             plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
 
-            if(c->negative)
+            if(c->work.negative)
             {
-              const struct curve* cn;
+              iterator_average = c->work.negative->work.iterator_average;
 
-              if(0 != (cn = find_curve(g, c->negative)))
-              {
-                rrd_iterator_create(&iterator_average, &cn->data, "AVERAGE", interval, graph_width);
-
-                plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
-              }
+              plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
             }
           }
         }
@@ -1614,4 +1625,103 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   free(png_path);
   free(canvas.data);
+}
+
+void
+compile_cdef(struct cdef_script* target, struct graph* g, const char* string)
+{
+  char* buf;
+  char* token;
+  char* saveptr;
+  size_t i = 0;
+
+  target->token_count = 0;
+
+  if(!*string)
+    return;
+
+  ++target->token_count;
+
+  for(token = (char*) string; *token; ++token)
+  {
+    if(*token == ',')
+      ++target->token_count;
+  }
+
+  target->tokens = calloc(sizeof(struct cdef_token), target->token_count);
+
+  buf = alloca(strlen(string) + 1);
+  strcpy(buf, string);
+
+  token = strtok_r(buf, ",", &saveptr);
+
+  while(token)
+  {
+    struct cdef_token* ct;
+    const struct curve* c;
+    double value;
+    char* endptr;
+
+    ct = &target->tokens[i++];
+
+    if(!strcmp(token, "+"))
+    {
+      ct->type = cdef_plus;
+    }
+    else if(!strcmp(token, "-"))
+    {
+      ct->type = cdef_minus;
+    }
+    else if(!strcmp(token, "*"))
+    {
+      ct->type = cdef_mul;
+    }
+    else if(!strcmp(token, "/"))
+    {
+      ct->type = cdef_div;
+    }
+    else if(!strcmp(token, "IF"))
+    {
+      ct->type = cdef_IF;
+    }
+    else if(!strcmp(token, "UN"))
+    {
+      ct->type = cdef_UN;
+    }
+    else if(!strcmp(token, "UNKN"))
+    {
+      ct->type = cdef_constant;
+      ct->v.constant = NAN;
+    }
+    else if(!strcmp(token, "TIME"))
+    {
+      ct->type = cdef_TIME;
+    }
+    else if(!strcmp(token, "LE"))
+    {
+      ct->type = cdef_LE;
+    }
+    else if(!strcmp(token, "GE"))
+    {
+      ct->type = cdef_GE;
+    }
+    else if(value = strtod(token, &endptr), !*endptr) /* Observe use of ',' */
+    {
+      ct->type = cdef_constant;
+      ct->v.constant = value;
+    }
+    else if(0 != (c = find_curve(g, token)))
+    {
+      ct->type = cdef_curve;
+      ct->v.curve = c;
+    }
+    else
+    {
+      fprintf(stderr, "Parse error in CDEF '%s': Unknown token '%s'\n", string, token);
+
+      return;
+    }
+
+    token = strtok_r(0, ",", &saveptr);
+  }
 }
