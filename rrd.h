@@ -86,12 +86,12 @@ struct rrd_iterator
 
   size_t current_position;
 
-  double (*generator)(size_t index, void* arg);
+  double (*generator)(const struct rrd_iterator* iterator, size_t index, void* arg);
   void* generator_arg;
 };
 
 #define rrd_iterator_peek_index(i, index) \
-    ((i)->generator ? (i)->generator((i)->first + index, (i)->generator_arg) \
+    ((i)->generator ? (i)->generator(i, + index, (i)->generator_arg) \
                     : ((i)->values[(i)->offset + ((index + (i)->first) % (i)->count) * (i)->step + (i)->ds]))
 
 #define rrd_iterator_peek(i) rrd_iterator_peek_index(i, (i)->current_position)

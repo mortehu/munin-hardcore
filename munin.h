@@ -5,8 +5,8 @@
 
 enum cdef_token_type
 {
-  cdef_plus, cdef_minus, cdef_mul, cdef_div, cdef_IF, cdef_UN, cdef_TIME,
-  cdef_LE, cdef_GE, cdef_constant, cdef_curve
+  cdef_plus, cdef_minus, cdef_mul, cdef_div, cdef_mod, cdef_IF, cdef_UN,
+  cdef_TIME, cdef_LE, cdef_GE, cdef_constant, cdef_curve
 };
 
 enum iterator_name
@@ -35,7 +35,7 @@ struct cdef_script
 struct cdef_run_args
 {
   struct cdef_script* script;
-  struct graph* g;
+  struct curve* c;
   enum iterator_name name;
 };
 

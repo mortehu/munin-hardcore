@@ -76,7 +76,7 @@ void
 do_graph(struct graph* g, size_t interval, const char* suffix);
 
 double
-cdef_eval(size_t index, void* varg);
+cdef_eval(const struct rrd_iterator* iterator, size_t index, void* vargs);
 
 void
 cdef_create_iterator(struct rrd_iterator* result, struct graph* g, struct curve* c, enum iterator_name name, size_t max_count);
@@ -718,7 +718,7 @@ main(int argc, char** argv)
       if(-1 == asprintf(&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, g->domain, g->host, g->name, c->name, suffix))
         errx(EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror(errno));
 
-      if(-1 == rrd_parse(&c->data, c->path))
+      if(-1 == rrd_parse(&c->data, c->path) && !c->cdef)
       {
         if(debug)
           fprintf(stderr, "Skipping data source %s\n", c->path);
@@ -1208,10 +1208,13 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
     memset(&c->work, 0, sizeof(c->work));
 
-    if(-1 == rrd_iterator_create(&c->work.iterator[average], &c->data, "AVERAGE", interval, graph_width)
-    || -1 == rrd_iterator_create(&c->work.iterator[min],     &c->data, "MIN",     interval, graph_width)
-    || -1 == rrd_iterator_create(&c->work.iterator[max],     &c->data, "MAX",     interval, graph_width))
-      errx(EXIT_FAILURE, "Did not find all required round robin archives in '%s'", c->path);
+    if(c->data.header.ds_count)
+    {
+      if(-1 == rrd_iterator_create(&c->work.iterator[average], &c->data, "AVERAGE", interval, graph_width)
+      || -1 == rrd_iterator_create(&c->work.iterator[min],     &c->data, "MIN",     interval, graph_width)
+      || -1 == rrd_iterator_create(&c->work.iterator[max],     &c->data, "MAX",     interval, graph_width))
+        errx(EXIT_FAILURE, "Did not find all required round robin archives in '%s'", c->path);
+    }
   }
 
   for(curve = 0; curve < g->curve_count; ++curve)
@@ -1231,18 +1234,15 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     {
       if(-1 == cdef_compile(&c->work.script, g, c->cdef))
       {
-        fprintf(stderr, "Ignoring CDEF due to failed compilation\n");
+        free(png_path);
 
-        c->cdef = 0;
+        return;
       }
-      else
-      {
-        for(i = 0; i < 3; ++i)
-          cdef_create_iterator(&c->work.eff_iterator[i], g, c, i, graph_width);
-      }
+
+      for(i = 0; i < 3; ++i)
+        cdef_create_iterator(&c->work.eff_iterator[i], g, c, i, graph_width);
     }
-
-    if(!c->cdef)
+    else
     {
       for(i = 0; i < 3; ++i)
         c->work.eff_iterator[i] = c->work.iterator[i];
@@ -1655,16 +1655,16 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 }
 
 double
-cdef_eval(size_t index, void* varg)
+cdef_eval(const struct rrd_iterator* iterator, size_t index, void* vargs)
 {
-  struct cdef_run_args* arg = varg;
+  struct cdef_run_args* args = vargs;
   struct cdef_script* script;
   size_t i;
 
   double* stack;
   size_t sp = 0;
 
-  script = arg->script;
+  script = args->script;
   stack = alloca(sizeof(double) * script->max_stack_size);
 
   for(i = 0; i < script->token_count; ++i)
@@ -1696,6 +1696,13 @@ cdef_eval(size_t index, void* varg)
 
       --sp;
       stack[sp - 1] /= stack[sp];
+
+      break;
+
+    case cdef_mod:
+
+      --sp;
+      stack[sp - 1] = fmod(stack[sp - 1], stack[sp]);
 
       break;
 
@@ -1751,7 +1758,10 @@ cdef_eval(size_t index, void* varg)
 
         ref_c = script->tokens[i].v.curve;
 
-        stack[sp++] = rrd_iterator_peek_index(&ref_c->work.iterator[arg->name], index);
+        if(ref_c == args->c)
+          stack[sp++] = rrd_iterator_peek_index(&ref_c->work.iterator[args->name], iterator->first + index);
+        else
+          stack[sp++] = rrd_iterator_peek_index(&ref_c->work.eff_iterator[args->name], index);
       }
 
       break;
@@ -1777,6 +1787,7 @@ cdef_create_iterator(struct rrd_iterator* result, struct graph* g, struct curve*
   args = malloc(sizeof(*args));
   args->script = script;
   args->name = name;
+  args->c = c;
 
   for(i = 0; i < script->token_count; ++i)
   {
@@ -1859,6 +1870,11 @@ cdef_compile(struct cdef_script* target, struct graph* g, const char* string)
       ct->type = cdef_div;
       argc = 2;
     }
+    else if(!strcmp(token, "%"))
+    {
+      ct->type = cdef_mod;
+      argc = 2;
+    }
     else if(!strcmp(token, "IF"))
     {
       ct->type = cdef_IF;
@@ -1873,6 +1889,11 @@ cdef_compile(struct cdef_script* target, struct graph* g, const char* string)
     {
       ct->type = cdef_constant;
       ct->v.constant = NAN;
+    }
+    else if(!strcmp(token, "INF"))
+    {
+      ct->type = cdef_constant;
+      ct->v.constant = INFINITY;
     }
     else if(!strcmp(token, "TIME"))
     {
@@ -1900,14 +1921,14 @@ cdef_compile(struct cdef_script* target, struct graph* g, const char* string)
     }
     else
     {
-      fprintf(stderr, "Parse error in CDEF '%s': Unknown token '%s'\n", string, token);
+      fprintf(stderr, "Parse error in CDEF '%s' for '%s': Unknown token '%s'\n", string, g->name, token);
 
       return -1;
     }
 
     if(stack_size < argc)
     {
-      fprintf(stderr, "Parse error in CDEF '%s': %s called with less than %zu parameters\n", string, token, argc);
+      fprintf(stderr, "Parse error in CDEF '%s' for '%s': %s called with less than %zu parameters\n", string, g->name, token, argc);
 
       return -1;
     }
