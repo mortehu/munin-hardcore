@@ -717,7 +717,7 @@ main(int argc, char** argv)
 
         ch = strword(g->order, c->name);
 
-        if(ch[strlen(c->name)] == '=')
+        if(ch && ch[strlen(c->name)] == '=')
         {
           curve_name = strdupa(ch + strlen(c->name) + 1);
 
