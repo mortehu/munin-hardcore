@@ -75,8 +75,14 @@ static const uint32_t colors[] =
 void
 do_graph(struct graph* g, size_t interval, const char* suffix);
 
+double
+cdef_eval(size_t index, void* varg);
+
 void
-compile_cdef(struct cdef_script* target, struct graph* g, const char* string);
+cdef_create_iterator(struct rrd_iterator* result, struct graph* g, struct curve* c, enum iterator_name name, size_t max_count);
+
+int
+cdef_compile(struct cdef_script* target, struct graph* g, const char* string);
 
 static struct graph* graphs;
 static size_t graph_count;
@@ -725,9 +731,6 @@ main(int argc, char** argv)
 	continue;
       }
 
-      if(c->cdef)
-        compile_cdef(&c->work.script, g, c->cdef);
-
       ++curve;
     }
 
@@ -794,7 +797,7 @@ plot_gauge(struct canvas* canvas,
            struct rrd_iterator* iterator,
            size_t graph_x, size_t graph_y,
            size_t width, size_t height,
-           double min, double max, size_t ds,
+           double global_min, double global_max, size_t ds,
            uint32_t color, unsigned int flags)
 {
   int x = 0, y, prev_y = -1;
@@ -815,7 +818,7 @@ plot_gauge(struct canvas* canvas,
     if(flags & PLOT_NEGATIVE)
       value = -value;
 
-    y = height - (value - min) * (height - 1) / (max - min) - 1;
+    y = height - (value - global_min) * (height - 1) / (global_max - global_min) - 1;
 
     if(prev_y != -1)
       draw_line(canvas, graph_x + x - 1, graph_y + prev_y, graph_x + x, graph_y + y, color);
@@ -832,7 +835,7 @@ plot_min_max(struct canvas* canvas,
              struct rrd_iterator* maxs,
              size_t graph_x, size_t graph_y,
              size_t width, size_t height,
-             double min, double max, size_t ds,
+             double global_min, double global_max, size_t ds,
              uint32_t color, unsigned int flags)
 {
   size_t i, x = 0;
@@ -853,8 +856,8 @@ plot_min_max(struct canvas* canvas,
       max_value = -max_value;
     }
 
-    size_t y0 = height - (min_value - min) * (height - 1) / (max - min) - 1;
-    size_t y1 = height - (max_value - min) * (height - 1) / (max - min) - 1;
+    size_t y0 = height - (min_value - global_min) * (height - 1) / (global_max - global_min) - 1;
+    size_t y1 = height - (max_value - global_min) * (height - 1) / (global_max - global_min) - 1;
 
     draw_vline(canvas, graph_x + x, graph_y + y0, graph_y + y1, color);
   }
@@ -865,7 +868,7 @@ plot_area(struct canvas* canvas,
           struct rrd_iterator* iterator, double* maxs,
           size_t graph_x, size_t graph_y,
           size_t width, size_t height,
-          double min, double max, size_t ds,
+          double global_min, double global_max, size_t ds,
           uint32_t color)
 {
   int x = 0, y0, y1;
@@ -879,8 +882,8 @@ plot_area(struct canvas* canvas,
     if(isnan(value))
       continue;
 
-    y0 = height - (maxs[x] - min) * (height - 1) / (max - min) - 1;
-    y1 = height - ((value + maxs[x]) - min) * (height - 1) / (max - min) - 1;
+    y0 = height - (maxs[x] - global_min) * (height - 1) / (global_max - global_min) - 1;
+    y1 = height - ((value + maxs[x]) - global_min) * (height - 1) / (global_max - global_min) - 1;
 
     draw_vline(canvas, graph_x + x, graph_y + y0, graph_y + y1, color);
 
@@ -1058,7 +1061,7 @@ find_curve(const struct graph* g, const char* name)
 
 void
 draw_grid(struct graph* g, struct canvas* canvas,
-          time_t last_update, size_t interval, double min, double max,
+          time_t last_update, size_t interval, double global_min, double global_max,
           size_t graph_x, size_t graph_y, size_t graph_width, size_t graph_height)
 {
   char buf[64];
@@ -1083,17 +1086,17 @@ draw_grid(struct graph* g, struct canvas* canvas,
 
   ta = &time_args[i];
 
-  step_size = calc_step_size(max - min, graph_height);
+  step_size = calc_step_size(global_max - global_min, graph_height);
 
   localtime_r(&last_update, &tm_last_update);
   t = last_update + tm_last_update.tm_gmtoff;
   prev_t = t + interval;
 
-  number_format_args((fabs(max) > fabs(min)) ? fabs(max) : fabs(min), &format, &suffix, &scale);
+  number_format_args((fabs(global_max) > fabs(global_min)) ? fabs(global_max) : fabs(global_min), &format, &suffix, &scale);
 
-  for(j = min / step_size; j <= max / step_size; ++j)
+  for(j = global_min / step_size; j <= global_max / step_size; ++j)
   {
-    y = graph_height - (j * step_size - min) * (graph_height - 1) / (max - min) - 1;
+    y = graph_height - (j * step_size - global_min) * (graph_height - 1) / (global_max - global_min) - 1;
 
     sprintf(buf, format, (j * step_size) * scale, suffix);
 
@@ -1184,6 +1187,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     }
   }
 
+
   int has_negative = 0, draw_min_max = 0;
 
   size_t graph_width, graph_height;
@@ -1192,7 +1196,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   graph_width = g->width ? g->width : 400;
   graph_height = g->height ? g->height : 175;
 
-  double min = 0, max = 0;
+  double global_min = 0, global_max = 0;
   double* maxs = alloca(sizeof(double) * graph_width);
   memset(maxs, 0, sizeof(double) * graph_width);
 
@@ -1201,9 +1205,19 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   for(curve = 0; curve < g->curve_count; ++curve)
   {
     struct curve* c = &g->curves[curve];
-    int area = 0;
 
     memset(&c->work, 0, sizeof(c->work));
+
+    if(-1 == rrd_iterator_create(&c->work.iterator[average], &c->data, "AVERAGE", interval, graph_width)
+    || -1 == rrd_iterator_create(&c->work.iterator[min],     &c->data, "MIN",     interval, graph_width)
+    || -1 == rrd_iterator_create(&c->work.iterator[max],     &c->data, "MAX",     interval, graph_width))
+      errx(EXIT_FAILURE, "Did not find all required round robin archives in '%s'", c->path);
+  }
+
+  for(curve = 0; curve < g->curve_count; ++curve)
+  {
+    struct curve* c = &g->curves[curve];
+    int area = 0;
 
     struct rrd_iterator iterator_average;
     struct rrd_iterator iterator_min;
@@ -1213,10 +1227,26 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     if(c->data.live_header.last_up > last_update)
       last_update = c->data.live_header.last_up;
 
-    if(-1 == rrd_iterator_create(&c->work.iterator_average, &c->data, "AVERAGE", interval, graph_width)
-    || -1 == rrd_iterator_create(&c->work.iterator_min,     &c->data, "MIN",     interval, graph_width)
-    || -1 == rrd_iterator_create(&c->work.iterator_max,     &c->data, "MAX",     interval, graph_width))
-      errx(EXIT_FAILURE, "Did not find all required round robin archives in '%s'", c->path);
+    if(c->cdef)
+    {
+      if(-1 == cdef_compile(&c->work.script, g, c->cdef))
+      {
+        fprintf(stderr, "Ignoring CDEF due to failed compilation\n");
+
+        c->cdef = 0;
+      }
+      else
+      {
+        for(i = 0; i < 3; ++i)
+          cdef_create_iterator(&c->work.eff_iterator[i], g, c, i, graph_width);
+      }
+    }
+
+    if(!c->cdef)
+    {
+      for(i = 0; i < 3; ++i)
+        c->work.eff_iterator[i] = c->work.iterator[i];
+    }
 
     if(!c->nograph && c->draw)
     {
@@ -1229,9 +1259,9 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         area = 1;
     }
 
-    iterator_average = c->work.iterator_average;
-    iterator_min = c->work.iterator_min;
-    iterator_max = c->work.iterator_max;
+    iterator_average = c->work.eff_iterator[average];
+    iterator_min = c->work.eff_iterator[min];
+    iterator_max = c->work.eff_iterator[max];
 
     c->work.cur = rrd_iterator_last(&iterator_average);
     c->work.max_avg = 0.0;
@@ -1256,8 +1286,8 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         {
           maxs[x] += avg_value;
 
-          if(maxs[x] > max)
-            max = maxs[x];
+          if(maxs[x] > global_max)
+            global_max = maxs[x];
         }
 
         c->work.avg += avg_value;
@@ -1306,41 +1336,38 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     if(c->nograph)
       continue;
 
-    if(c->has_max && c->max > max)
-      c->max = max;
-
     if(draw_min_max)
     {
-      if(c->work.max > max)
-        max = c->work.max;
+      if(c->work.max > global_max)
+        global_max = c->work.max;
 
-      if(c->work.min < min)
-        min = c->work.min;
+      if(c->work.min < global_min)
+        global_min = c->work.min;
 
       if(c->work.negative)
       {
-        if(-c->work.negative->work.max < min)
-          min = -c->work.negative->work.max;
+        if(-c->work.negative->work.max < global_min)
+          global_min = -c->work.negative->work.max;
 
-        if(-c->work.negative->work.min > max)
-          max = -c->work.negative->work.min;
+        if(-c->work.negative->work.min > global_max)
+          global_max = -c->work.negative->work.min;
       }
     }
     else
     {
-      if(c->work.max_avg > max)
-        max = c->work.max_avg;
+      if(c->work.max_avg > global_max)
+        global_max = c->work.max_avg;
 
-      if(c->work.min_avg < min)
-        min = c->work.min_avg;
+      if(c->work.min_avg < global_min)
+        global_min = c->work.min_avg;
 
       if(c->negative)
       {
-        if(-c->work.negative->work.max_avg < min)
-          min = -c->work.negative->work.max_avg;
+        if(-c->work.negative->work.max_avg < global_min)
+          global_min = -c->work.negative->work.max_avg;
 
-        if(-c->work.negative->work.min_avg > max)
-          max = -c->work.negative->work.min_avg;
+        if(-c->work.negative->work.min_avg > global_max)
+          global_max = -c->work.negative->work.min_avg;
       }
     }
   }
@@ -1412,7 +1439,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   size_t max_label_width = 0;
 
-  if(min != max)
+  if(global_min != global_max)
   {
     int pass;
 
@@ -1425,7 +1452,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
       y = graph_y + graph_height + 20 + LINE_HEIGHT;
 
       if(pass == 1)
-        draw_grid(g, &canvas, last_update, interval, min, max, graph_x, graph_y, graph_width, graph_height);
+        draw_grid(g, &canvas, last_update, interval, global_min, global_max, graph_x, graph_y, graph_width, graph_height);
 
       for(curve = 0; curve < g->curve_count; ++curve)
       {
@@ -1450,7 +1477,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         else
           color = colors[graph_index % (sizeof(colors) / sizeof(colors[0]))];
 
-        iterator_average = c->work.iterator_average;
+        iterator_average = c->work.eff_iterator[average];
 
         if(!c->draw || !strcasecmp(c->draw, "line2"))
         {
@@ -1458,40 +1485,40 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
           {
             if(pass == 0)
             {
-              iterator_min = c->work.iterator_min;
-              iterator_max = c->work.iterator_max;
+              iterator_min = c->work.eff_iterator[min];
+              iterator_max = c->work.eff_iterator[max];
 
-              plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
+              plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color, 0);
             }
             else
-              plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, 0);
+              plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, (color >> 1) & 0x7f7f7f, 0);
 
             if(c->work.negative)
             {
               if(pass == 0)
               {
-                iterator_min = c->work.negative->work.iterator_min;
-                iterator_max = c->work.negative->work.iterator_max;
+                iterator_min = c->work.negative->work.eff_iterator[min];
+                iterator_max = c->work.negative->work.eff_iterator[max];
 
-                plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
+                plot_min_max(&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color, PLOT_NEGATIVE);
               }
               else
               {
-                iterator_average = c->work.negative->work.iterator_average;
+                iterator_average = c->work.negative->work.eff_iterator[average];
 
-                plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, (color >> 1) & 0x7f7f7f, PLOT_NEGATIVE);
+                plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, (color >> 1) & 0x7f7f7f, PLOT_NEGATIVE);
               }
             }
           }
           else if(pass == 1)
           {
-            plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, 0);
+            plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color, 0);
 
             if(c->work.negative)
             {
-              iterator_average = c->work.negative->work.iterator_average;
+              iterator_average = c->work.negative->work.eff_iterator[average];
 
-              plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, min, max, ds, color, PLOT_NEGATIVE);
+              plot_gauge(&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color, PLOT_NEGATIVE);
             }
           }
         }
@@ -1501,13 +1528,13 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
           {
             memset(maxs, 0, sizeof(double) * graph_width);
 
-            plot_area(&canvas, &iterator_average, maxs, graph_x, graph_y, graph_width, graph_height, min, max, ds, color);
+            plot_area(&canvas, &iterator_average, maxs, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color);
           }
         }
         else if(!strcasecmp(c->draw, "stack") && (pass == 0))
         {
           if(pass == 0)
-            plot_area(&canvas, &iterator_average, maxs, graph_x, graph_y, graph_width, graph_height, min, max, ds, color);
+            plot_area(&canvas, &iterator_average, maxs, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color);
         }
 
         if(pass == 0)
@@ -1528,10 +1555,10 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   }
   else
   {
-    min = 0.0;
-    max = 1.0;
+    global_min = 0.0;
+    global_max = 1.0;
     y = graph_y + graph_height + 20 + LINE_HEIGHT;
-    draw_grid(g, &canvas, last_update, interval, min, max, graph_x, graph_y, graph_width, graph_height);
+    draw_grid(g, &canvas, last_update, interval, global_min, global_max, graph_x, graph_y, graph_width, graph_height);
   }
 
   if(g->total)
@@ -1616,7 +1643,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     }
   }
 
-  y = graph_height + min * (graph_height - 1) / (max - min) - 1;
+  y = graph_height + global_min * (graph_height - 1) / (global_max - global_min) - 1;
 
   draw_line(&canvas, graph_x, y + graph_y, graph_x + graph_width - 1, y + graph_y, 0);
 
@@ -1627,18 +1654,165 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   free(canvas.data);
 }
 
+double
+cdef_eval(size_t index, void* varg)
+{
+  struct cdef_run_args* arg = varg;
+  struct cdef_script* script;
+  size_t i;
+
+  double* stack;
+  size_t sp = 0;
+
+  script = arg->script;
+  stack = alloca(sizeof(double) * script->max_stack_size);
+
+  for(i = 0; i < script->token_count; ++i)
+  {
+    switch(script->tokens[i].type)
+    {
+    case cdef_plus:
+
+      --sp;
+      stack[sp - 1] += stack[sp];
+
+      break;
+
+    case cdef_minus:
+
+      --sp;
+      stack[sp - 1] += stack[sp];
+
+      break;
+
+    case cdef_mul:
+
+      --sp;
+      stack[sp - 1] *= stack[sp];
+
+      break;
+
+    case cdef_div:
+
+      --sp;
+      stack[sp - 1] /= stack[sp];
+
+      break;
+
+    case cdef_IF:
+
+      sp -= 2;
+
+      if(stack[sp - 1])
+        stack[sp - 1] = stack[sp];
+      else
+        stack[sp - 1] = stack[sp + 1];
+
+      break;
+
+    case cdef_UN:
+
+      if(isnan(stack[sp - 1]))
+        stack[sp - 1] = 1;
+      else
+        stack[sp - 1] = 0;
+
+      break;
+
+    case cdef_TIME:
+
+      return NAN;
+      break;
+
+    case cdef_LE:
+
+      --sp;
+      stack[sp - 1] = (stack[sp - 1] <= stack[sp]);
+
+      break;
+
+    case cdef_GE:
+
+      --sp;
+      stack[sp - 1] = (stack[sp - 1] >= stack[sp]);
+
+      break;
+
+    case cdef_constant:
+
+      stack[sp++] = script->tokens[i].v.constant;
+
+      break;
+
+    case cdef_curve:
+
+      {
+        const struct curve* ref_c;
+
+        ref_c = script->tokens[i].v.curve;
+
+        stack[sp++] = rrd_iterator_peek_index(&ref_c->work.iterator[arg->name], index);
+      }
+
+      break;
+    }
+  }
+
+  if(sp)
+    return stack[sp - 1];
+
+  return NAN;
+}
+
 void
-compile_cdef(struct cdef_script* target, struct graph* g, const char* string)
+cdef_create_iterator(struct rrd_iterator* result, struct graph* g, struct curve* c, enum iterator_name name, size_t max_count)
+{
+  size_t min_count = 1000, i;
+  struct cdef_run_args* args;
+  struct cdef_script* script;
+
+  memset(result, 0, sizeof(*result));
+  script = &c->work.script;
+
+  args = malloc(sizeof(*args));
+  args->script = script;
+  args->name = name;
+
+  for(i = 0; i < script->token_count; ++i)
+  {
+    if(script->tokens[i].type == cdef_curve)
+    {
+      const struct curve* ref_c;
+
+      ref_c = script->tokens[i].v.curve;
+
+      if(ref_c->work.iterator[name].count < min_count)
+        min_count = ref_c->work.iterator[name].count;
+    }
+  }
+
+  if(min_count > max_count)
+    result->first = min_count - max_count;
+
+  result->count = min_count;
+  result->generator = cdef_eval;
+  result->generator_arg = args;
+};
+
+int
+cdef_compile(struct cdef_script* target, struct graph* g, const char* string)
 {
   char* buf;
   char* token;
   char* saveptr;
   size_t i = 0;
+  size_t stack_size = 0;
 
   target->token_count = 0;
+  target->max_stack_size = 0;
 
   if(!*string)
-    return;
+    return 0;
 
   ++target->token_count;
 
@@ -1660,6 +1834,7 @@ compile_cdef(struct cdef_script* target, struct graph* g, const char* string)
     struct cdef_token* ct;
     const struct curve* c;
     double value;
+    size_t argc = 0;
     char* endptr;
 
     ct = &target->tokens[i++];
@@ -1667,26 +1842,32 @@ compile_cdef(struct cdef_script* target, struct graph* g, const char* string)
     if(!strcmp(token, "+"))
     {
       ct->type = cdef_plus;
+      argc = 2;
     }
     else if(!strcmp(token, "-"))
     {
       ct->type = cdef_minus;
+      argc = 2;
     }
     else if(!strcmp(token, "*"))
     {
       ct->type = cdef_mul;
+      argc = 2;
     }
     else if(!strcmp(token, "/"))
     {
       ct->type = cdef_div;
+      argc = 2;
     }
     else if(!strcmp(token, "IF"))
     {
       ct->type = cdef_IF;
+      argc = 3;
     }
     else if(!strcmp(token, "UN"))
     {
       ct->type = cdef_UN;
+      argc = 1;
     }
     else if(!strcmp(token, "UNKN"))
     {
@@ -1700,10 +1881,12 @@ compile_cdef(struct cdef_script* target, struct graph* g, const char* string)
     else if(!strcmp(token, "LE"))
     {
       ct->type = cdef_LE;
+      argc = 2;
     }
     else if(!strcmp(token, "GE"))
     {
       ct->type = cdef_GE;
+      argc = 2;
     }
     else if(value = strtod(token, &endptr), !*endptr) /* Observe use of ',' */
     {
@@ -1719,9 +1902,24 @@ compile_cdef(struct cdef_script* target, struct graph* g, const char* string)
     {
       fprintf(stderr, "Parse error in CDEF '%s': Unknown token '%s'\n", string, token);
 
-      return;
+      return -1;
     }
+
+    if(stack_size < argc)
+    {
+      fprintf(stderr, "Parse error in CDEF '%s': %s called with less than %zu parameters\n", string, token, argc);
+
+      return -1;
+    }
+
+    stack_size -= argc;
+    ++stack_size;
+
+    if(stack_size > target->max_stack_size)
+      target->max_stack_size = stack_size;
 
     token = strtok_r(0, ",", &saveptr);
   }
+
+  return 0;
 }

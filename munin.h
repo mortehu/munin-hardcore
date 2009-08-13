@@ -9,6 +9,11 @@ enum cdef_token_type
   cdef_LE, cdef_GE, cdef_constant, cdef_curve
 };
 
+enum iterator_name
+{
+  average = 0, min = 1, max = 2
+};
+
 struct cdef_token
 {
   enum cdef_token_type type;
@@ -24,6 +29,14 @@ struct cdef_script
 {
   struct cdef_token* tokens;
   size_t token_count;
+  size_t max_stack_size;
+};
+
+struct cdef_run_args
+{
+  struct cdef_script* script;
+  struct graph* g;
+  enum iterator_name name;
 };
 
 struct curve
@@ -56,9 +69,8 @@ struct curve
     double max_avg, min_avg;
     const struct curve* negative;
 
-    struct rrd_iterator iterator_average;
-    struct rrd_iterator iterator_min;
-    struct rrd_iterator iterator_max;
+    struct rrd_iterator iterator[3];
+    struct rrd_iterator eff_iterator[3];
   } work;
 };
 
