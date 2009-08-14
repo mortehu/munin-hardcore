@@ -86,7 +86,7 @@ struct graph
   const char* info;
   const char* order;
   const char* period;
-  const char* scale;
+  int noscale;
   const char* total;
   const char* vlabel;
   int nograph;

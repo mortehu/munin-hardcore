@@ -503,7 +503,7 @@ void parse_datafile(char* in)
 
           case key_graph_scale:
 
-            g->scale = value_start;
+            g->noscale = !strcasecmp(value_start, "no");
 
             break;
 
@@ -1163,7 +1163,15 @@ draw_grid(struct graph* g, struct canvas* canvas,
   t = last_update + tm_last_update.tm_gmtoff;
   prev_t = t + interval;
 
-  number_format_args((fabs(global_max) > fabs(global_min)) ? fabs(global_max) : fabs(global_min), &format, &suffix, &scale);
+  if(g->noscale)
+  {
+    format = (fabs(global_max) - fabs(global_min) < 1.0) ? "%.2f" : "%.f";
+
+    suffix = "";
+    scale = 1.0;
+  }
+  else
+    number_format_args((fabs(global_max) > fabs(global_min)) ? fabs(global_max) : fabs(global_min), &format, &suffix, &scale);
 
   for(j = global_min / step_size; j <= global_max / step_size; ++j)
   {
