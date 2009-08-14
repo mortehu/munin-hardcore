@@ -1863,7 +1863,7 @@ cdef_create_iterator(struct rrd_iterator* result, struct graph* g, struct curve*
   memset(result, 0, sizeof(*result));
   script = &c->work.script;
 
-  args = malloc(sizeof(*args));
+  args = &c->work.script_args[name];
   args->script = script;
   args->name = name;
   args->c = c;

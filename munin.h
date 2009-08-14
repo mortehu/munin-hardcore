@@ -71,6 +71,7 @@ struct curve
 
     struct rrd_iterator iterator[3];
     struct rrd_iterator eff_iterator[3];
+    struct cdef_run_args script_args[3];
   } work;
 };
 
