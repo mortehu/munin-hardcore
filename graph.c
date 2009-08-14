@@ -1027,9 +1027,14 @@ format_number(char* target, double number)
   const char* suffix;
   double scale;
 
-  number_format_args(number, &format, &suffix, &scale);
+  if(isnan(number))
+    strcpy(target, "nan");
+  else
+  {
+    number_format_args(number, &format, &suffix, &scale);
 
-  sprintf(target, format, number * scale, suffix);
+    sprintf(target, format, number * scale, suffix);
+  }
 }
 
 void
