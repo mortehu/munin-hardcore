@@ -280,7 +280,8 @@ lookup_key(const char* string)
   return -1;
 }
 
-void parse_datafile(char* in)
+void
+parse_datafile(char* in)
 {
   size_t curve, graph;
   size_t lineno = 2;
