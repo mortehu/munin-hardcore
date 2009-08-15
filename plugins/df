@@ -34,10 +34,6 @@ then
 		print n ".critical 98"
 	}'
 else
-	df -T -P -l -x none -x unknown -x udf -x iso9660 -x romfs -x ramfs | sed \
-		-e '1d' \
-		-e '/\/\//d' \
-		-e 's/[.-\/]/_/g' \
-		-e 's/\([^ \t]\+\)\([ \t]*tmpfs.*\)[ \t]\([^ \t]\+\)/\1\3 \2/' \
-		-e 's/ .* \([0-9]\+\)%.*/.value \1/'
+        df -T -P -l -x none -x unknown -x udf -x iso9660 -x romfs -x ramfs | awk \
+          'NR > 1 { gsub(/[.-\\/]/, "_", $1); sub(/%$/, "", $6); print $1 ".value " $6 }'
 fi
