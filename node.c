@@ -14,11 +14,10 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <errno.h>
-
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/in.h>
@@ -133,33 +132,35 @@ static void parse_config()
 
 int main(int argc, char** argv)
 {
-  char* fqdn;
+  FILE* pf;
   char* c;
   int i;
   int listenfd;
   int result;
   struct sockaddr_in address;
 
-  if(argc != 2)
+  static char host_name[32];
+
+  gethostname(host_name, sizeof(host_name));
+  host_name[sizeof(host_name) - 1] = 0;
+
+  nice(19);
+
+  parse_config();
+
+  pf = fopen(pidfile, "w");
+
+  if(!pf)
   {
-    fprintf(stderr, "Use %s <FQDN>!\n", argv[0]);
+    fprintf(stderr, "Failed to create PID file '%s': %s\n", pidfile, strerror(errno));
 
     return EXIT_FAILURE;
   }
 
-  nice(19);
-
-  fqdn = argv[1];
-
-  parse_config();
-
+  if(pf)
   {
-    FILE* pf = fopen(pidfile, "w");
-    if(pf)
-    {
-      fprintf(pf, "%d\n", getpid());
-      fclose(pf);
-    }
+    fprintf(pf, "%d\n", getpid());
+    fclose(pf);
   }
 
   signal(SIGCHLD, SIG_DFL);
@@ -171,7 +172,7 @@ int main(int argc, char** argv)
 
   if(-1 == (listenfd = socket(PF_INET, SOCK_STREAM, 0)))
   {
-    perror(PACKAGE_NAME ": socket(PF_INET, SOCK_STREAM, 0)");
+    fprintf(stderr, "Failed to create TCP socket: %s\n", strerror(errno));
 
     return EXIT_FAILURE;
   }
@@ -184,14 +185,14 @@ int main(int argc, char** argv)
 
   if(-1 == bind(listenfd, (struct sockaddr*) &address, sizeof(address)))
   {
-    perror(PACKAGE_NAME ": bind");
+    fprintf(stderr, "Failed to bind to TCP port %d: %s\n", listenport, strerror(errno));
 
     return EXIT_FAILURE;
   }
 
   if(-1 == listen(listenfd, 16))
   {
-    perror(PACKAGE_NAME ": listen");
+    fprintf(stderr, "Failed to start listening on TCP socket: %s\n", strerror(errno));
 
     return EXIT_FAILURE;
   }
@@ -235,7 +236,7 @@ int main(int argc, char** argv)
 
     FILE* fs = fdopen(clientfd, "w+");
 
-    fprintf(fs, "# " PACKAGE_NAME " node at %s\n", fqdn);
+    fprintf(fs, "# " PACKAGE_NAME " node at %s\n", host_name);
 
     for(;;)
     {
@@ -254,7 +255,7 @@ int main(int argc, char** argv)
 
       if(!strncmp("list ", buffer, 5))
       {
-        if(strcmp(buffer + 5, fqdn))
+        if(strcmp(buffer + 5, host_name))
         {
           fprintf(fs, "\n");
 
@@ -291,7 +292,7 @@ int main(int argc, char** argv)
       }
       else if(!strcmp("nodes", buffer))
       {
-        fprintf(fs, "%s\n.\n", fqdn);
+        fprintf(fs, "%s\n.\n", host_name);
       }
       else if(!strncmp("config ", buffer, 7) || !strncmp("fetch ", buffer, 6))
       {
@@ -334,7 +335,7 @@ int main(int argc, char** argv)
       }
       else if(!strcmp("version", buffer))
       {
-        fprintf(fs, PACKAGE_NAME " node on %s version: %s\n", fqdn, PACKAGE_VERSION);
+        fprintf(fs, PACKAGE_NAME " node on %s version: %s\n", host_name, PACKAGE_VERSION);
       }
       else if(!strcmp("quit", buffer))
       {
