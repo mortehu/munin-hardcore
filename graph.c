@@ -1402,9 +1402,9 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     iterator_max = c->work.eff_iterator[max];
 
     c->work.cur = rrd_iterator_last(&iterator_average);
-    c->work.max_avg = 0.0;
-    c->work.min_avg = 0.0;
-    c->work.min = 0.0;
+    c->work.max_avg = c->work.cur;
+    c->work.min_avg = c->work.cur;
+    c->work.min = c->work.cur;
     c->work.max = 0.0;
     c->work.avg = 0.0;
 
