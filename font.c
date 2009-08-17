@@ -16,6 +16,7 @@
 
 #include <err.h>
 #include <math.h>
+#include <pthread.h>
 #include <wchar.h>
 
 #include <ft2build.h>
@@ -29,6 +30,8 @@ FT_Face          ft_face;
 FTC_Manager      ft_cache_mgr;
 FTC_SBitCache    ft_sbit_cache;
 FTC_ImageTypeRec ft_image_type;
+
+pthread_mutex_t ft_lock = PTHREAD_MUTEX_INITIALIZER;
 
 #define FONT_NAME "/usr/share/munin/VeraMono.ttf"
 #define FONT_CACHE_SIZE (1024 * 1024)
@@ -77,6 +80,8 @@ font_width(const char* text)
   FT_UInt idx;
   FTC_SBit sbit;
 
+  pthread_mutex_lock(&ft_lock);
+
   while(*text)
   {
     unsigned int n = 0, ch = *text++;
@@ -108,6 +113,8 @@ font_width(const char* text)
     width += sbit->xadvance;
   }
 
+  pthread_mutex_unlock(&ft_lock);
+
   return width;
 }
 
@@ -123,6 +130,8 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
     x -= font_width(text);
   else if(direction == -2)
     x -= font_width(text) >> 1;
+
+  pthread_mutex_lock(&ft_lock);
 
   while(*text)
   {
@@ -255,4 +264,6 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
       break;
     }
   }
+
+  pthread_mutex_unlock(&ft_lock);
 }

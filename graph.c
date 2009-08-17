@@ -15,7 +15,6 @@
 */
 
 #include <ctype.h>
-#include <err.h>
 #include <errno.h>
 #include <math.h>
 #include <stdint.h>
@@ -24,7 +23,10 @@
 #include <string.h>
 #include <time.h>
 
+#include <err.h>
 #include <getopt.h>
+#include <pthread.h>
+#include <semaphore.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -45,6 +47,13 @@ static const struct option long_options[] =
 
 static int debug = 0;
 static int nolazy = 0;
+static int cpu_count = 1;
+
+static sem_t thread_semaphore;
+
+static FILE* stats;
+static struct timeval graph_start, graph_end;
+static struct timeval domain_start, domain_end;
 
 static void
 help(const char* argv0)
@@ -101,7 +110,7 @@ static const char* logdir = "/var/log/munin";
 #define LINE_HEIGHT 14
 
 ssize_t
-graph_index(const char* domain, const char* host, const char* name, int create)
+find_graph(const char* domain, const char* host, const char* name, int create)
 {
   size_t i;
 
@@ -348,7 +357,7 @@ parse_datafile(char* in)
         graph_key = graph_end + 1;
         *graph_end = 0;
 
-        graph = graph_index(key_start, host_start, graph_start, 1);
+        graph = find_graph(key_start, host_start, graph_start, 1);
         g = &graphs[graph];
 
         if(0 != (tmp = strchr(graph_key, '.')))
@@ -565,6 +574,157 @@ parse_datafile(char* in)
   }
 }
 
+void
+process_graph(size_t graph_index)
+{
+  struct graph* g = &graphs[graph_index];
+  size_t curve;
+
+  if(g->nograph)
+  {
+    free(g->curves);
+
+    return;
+  }
+
+  graph_start = graph_end;
+
+  for(curve = 0; curve < g->curve_count; )
+  {
+    struct curve* c = &g->curves[curve];
+
+    const struct graph* eff_g = g;
+    const struct curve* eff_c = c;
+
+    if(g->order)
+    {
+      const char* ch;
+      char* curve_name;
+
+      ch = strword(g->order, c->name);
+
+      if(ch && ch[strlen(c->name)] == '=')
+      {
+        curve_name = strdupa(ch + strlen(c->name) + 1);
+
+        if(strchr(curve_name, ' '))
+          *strchr(curve_name, ' ' ) = 0;
+
+        if(strchr(curve_name, '.'))
+        {
+          char* graph_name;
+          ssize_t eff_graph_index;
+
+          graph_name = curve_name;
+          curve_name = strchr(graph_name, '.');
+          *curve_name++ = 0;
+
+          eff_graph_index = find_graph(g->domain, g->host, graph_name, 0);
+
+          if(eff_graph_index == -1)
+            goto skip_data_source;
+
+          eff_g = &graphs[eff_graph_index];
+        }
+
+        if(0 == (eff_c = find_curve(eff_g, curve_name)))
+          goto skip_data_source;
+      }
+    }
+
+    int suffix;
+
+    if(!eff_c->type || !strcasecmp(eff_c->type, "gauge"))
+      suffix = 'g';
+    else if(!strcasecmp(eff_c->type, "derive"))
+      suffix = 'd';
+    else if(!strcasecmp(eff_c->type, "counter"))
+      suffix = 'c';
+    else if(!strcasecmp(eff_c->type, "absolute"))
+      suffix = 'a';
+    else
+      errx(EXIT_FAILURE, "Unknown curve type '%s'", eff_c->type);
+
+    if(-1 == asprintf(&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, eff_g->domain, eff_g->host, eff_g->name, eff_c->name, suffix))
+      errx(EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror(errno));
+
+    if(-1 == rrd_parse(&c->data, c->path) && !c->cdef)
+    {
+skip_data_source:
+
+      if(debug)
+        fprintf(stderr, "Skipping data source %s.%s.%s.%s\n", g->domain, g->host, g->name, c->name);
+
+      free(c->path);
+
+      --g->curve_count;
+      memmove(&g->curves[curve], &g->curves[curve + 1], sizeof(struct curve) * (g->curve_count - curve));
+
+      continue;
+    }
+
+    ++curve;
+  }
+
+  if(g->curve_count)
+  {
+    graph_order = g->order;
+    qsort(g->curves, g->curve_count, sizeof(struct curve), curve_name_cmp);
+
+    do_graph(g, 300, "day");
+    do_graph(g, 1800, "week");
+    do_graph(g, 7200, "month");
+    do_graph(g, 86400, "year");
+
+    gettimeofday(&graph_end, 0);
+
+    if(stats)
+    {
+      fprintf(stats, "GS|%s|%s|%s|%.3f\n", g->domain, g->host, g->name,
+              graph_end.tv_sec - graph_start.tv_sec + (graph_end.tv_usec - graph_start.tv_usec) * 1.0e-6);
+
+      if(graph_index + 1 == graph_count
+      || strcmp(graphs[graph_index + 1].domain, graphs[graph_index].domain))
+      {
+        domain_end = graph_end;
+
+        fprintf(stats, "GD|%s|%.3f\n", g->domain,
+            domain_end.tv_sec - domain_start.tv_sec + (domain_end.tv_usec - domain_start.tv_usec) * 1.0e-6);
+
+        domain_start = domain_end;
+      }
+    }
+
+    for(curve = 0; curve < g->curve_count; ++curve)
+    {
+      rrd_free(&g->curves[curve].data);
+      free(g->curves[curve].work.script.tokens);
+      free(g->curves[curve].path);
+    }
+  }
+
+  free(g->curves);
+}
+
+struct graph_thread_arg
+{
+  size_t graph_index;
+};
+
+void*
+graph_thread(void* varg)
+{
+  struct graph_thread_arg* arg = varg;
+
+  process_graph(arg->graph_index);
+
+  free(arg);
+
+  sem_post(&thread_semaphore);
+
+  return 0;
+}
+
 int
 main(int argc, char** argv)
 {
@@ -573,7 +733,9 @@ main(int argc, char** argv)
   char* data;
   char* in;
   char* line_end;
-  size_t graph, curve;
+  size_t graph_index;
+
+  cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
 
   for(;;)
   {
@@ -634,7 +796,12 @@ main(int argc, char** argv)
     return EXIT_FAILURE;
   }
 
-  FILE* stats = fopen("/var/lib/munin/munin-graph.stats", "w");
+  if(cpu_count < 1)
+    cpu_count = 1;
+
+  sem_init(&thread_semaphore, 0, cpu_count);
+
+  stats = fopen("/var/lib/munin/munin-graph.stats", "w");
 
   if(!stats && debug)
     fprintf(stderr, "Failed to open /var/lib/munin/munin-graph.stats for writing: %s\n", strerror(errno));
@@ -685,139 +852,26 @@ main(int argc, char** argv)
 
   qsort(graphs, graph_count, sizeof(struct graph), graph_cmp);
 
-  struct timeval graph_start, graph_end;
-  struct timeval domain_start, domain_end;
   gettimeofday(&graph_end, 0);
   domain_start = graph_end;
 
-  for(graph = 0; graph < graph_count; ++graph)
+  for(graph_index = 0; graph_index < graph_count; ++graph_index)
   {
-    struct graph* g = &graphs[graph];
+    struct graph_thread_arg* arg;
+    pthread_t thread;
 
-    if(g->nograph)
-    {
-      free(g->curves);
+    arg = malloc(sizeof(*arg));
+    arg->graph_index = graph_index;
 
-      continue;
-    }
+    sem_wait(&thread_semaphore);
+    pthread_create(&thread, 0, graph_thread, arg);
+    pthread_detach(thread);
+  }
 
-    graph_start = graph_end;
-
-    for(curve = 0; curve < g->curve_count; )
-    {
-      struct curve* c = &g->curves[curve];
-
-      const struct graph* eff_g = g;
-      const struct curve* eff_c = c;
-
-      if(g->order)
-      {
-        const char* ch;
-        char* curve_name;
-
-        ch = strword(g->order, c->name);
-
-        if(ch && ch[strlen(c->name)] == '=')
-        {
-          curve_name = strdupa(ch + strlen(c->name) + 1);
-
-          if(strchr(curve_name, ' '))
-            *strchr(curve_name, ' ' ) = 0;
-
-          if(strchr(curve_name, '.'))
-          {
-            char* graph_name;
-            ssize_t eff_graph_index;
-
-            graph_name = curve_name;
-            curve_name = strchr(graph_name, '.');
-            *curve_name++ = 0;
-
-            eff_graph_index = graph_index(g->domain, g->host, graph_name, 0);
-
-            if(eff_graph_index == -1)
-              goto skip_data_source;
-
-            eff_g = &graphs[eff_graph_index];
-          }
-
-          if(0 == (eff_c = find_curve(eff_g, curve_name)))
-            goto skip_data_source;
-        }
-      }
-
-      int suffix;
-
-      if(!eff_c->type || !strcasecmp(eff_c->type, "gauge"))
-        suffix = 'g';
-      else if(!strcasecmp(eff_c->type, "derive"))
-        suffix = 'd';
-      else if(!strcasecmp(eff_c->type, "counter"))
-        suffix = 'c';
-      else if(!strcasecmp(eff_c->type, "absolute"))
-        suffix = 'a';
-      else
-        errx(EXIT_FAILURE, "Unknown curve type '%s'", eff_c->type);
-
-      if(-1 == asprintf(&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, eff_g->domain, eff_g->host, eff_g->name, eff_c->name, suffix))
-        errx(EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror(errno));
-
-      if(-1 == rrd_parse(&c->data, c->path) && !c->cdef)
-      {
-skip_data_source:
-
-        if(debug)
-          fprintf(stderr, "Skipping data source %s.%s.%s.%s\n", g->domain, g->host, g->name, c->name);
-
-	free(c->path);
-
-	--g->curve_count;
-	memmove(&g->curves[curve], &g->curves[curve + 1], sizeof(struct curve) * (g->curve_count - curve));
-
-	continue;
-      }
-
-      ++curve;
-    }
-
-    if(g->curve_count)
-    {
-      graph_order = g->order;
-      qsort(g->curves, g->curve_count, sizeof(struct curve), curve_name_cmp);
-
-      do_graph(g, 300, "day");
-      do_graph(g, 1800, "week");
-      do_graph(g, 7200, "month");
-      do_graph(g, 86400, "year");
-
-      gettimeofday(&graph_end, 0);
-
-      if(stats)
-      {
-	fprintf(stats, "GS|%s|%s|%s|%.3f\n", g->domain, g->host, g->name,
-		graph_end.tv_sec - graph_start.tv_sec + (graph_end.tv_usec - graph_start.tv_usec) * 1.0e-6);
-
-	if(graph + 1 == graph_count
-	|| strcmp(graphs[graph + 1].domain, graphs[graph].domain))
-	{
-	  domain_end = graph_end;
-
-	  fprintf(stats, "GD|%s|%.3f\n", g->domain,
-	      domain_end.tv_sec - domain_start.tv_sec + (domain_end.tv_usec - domain_start.tv_usec) * 1.0e-6);
-
-	  domain_start = domain_end;
-	}
-      }
-
-      for(curve = 0; curve < g->curve_count; ++curve)
-      {
-	rrd_free(&g->curves[curve].data);
-        free(g->curves[curve].work.script.tokens);
-	free(g->curves[curve].path);
-      }
-    }
-
-    free(g->curves);
+  while(cpu_count)
+  {
+    sem_wait(&thread_semaphore);
+    --cpu_count;
   }
 
   if(stats)
@@ -825,7 +879,7 @@ skip_data_source:
     gettimeofday(&total_end, 0);
 
     fprintf(stats, "GT|total|%.3f\n",
-            total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) * 1.0e-6);
+        total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) * 1.0e-6);
 
     fclose(stats);
   }
