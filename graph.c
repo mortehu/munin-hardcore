@@ -14,6 +14,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <math.h>
@@ -27,6 +28,7 @@
 #include <getopt.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <sys/signal.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -725,6 +727,14 @@ graph_thread(void* varg)
   return 0;
 }
 
+void
+sighandler(int signal)
+{
+  system("cp -uva /var/lib/munin /tmp/munin-crash");
+
+  exit(EXIT_FAILURE);
+}
+
 int
 main(int argc, char** argv)
 {
@@ -734,6 +744,8 @@ main(int argc, char** argv)
   char* in;
   char* line_end;
   size_t graph_index;
+
+  signal(SIGSEGV, sighandler);
 
   cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
 
@@ -919,6 +931,9 @@ plot_gauge(struct canvas* canvas,
       value = -value;
 
     y = height - (value - global_min) * (height - 1) / (global_max - global_min) - 1;
+
+    assert(y >= 0);
+    assert(y < height);
 
     if(prev_y != -1)
       draw_line(canvas, graph_x + x - 1, graph_y + prev_y, graph_x + x, graph_y + y, color);
