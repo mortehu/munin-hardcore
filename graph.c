@@ -727,14 +727,6 @@ graph_thread(void* varg)
   return 0;
 }
 
-void
-sighandler(int signal)
-{
-  system("cp -uva /var/lib/munin /tmp/munin-crash");
-
-  exit(EXIT_FAILURE);
-}
-
 int
 main(int argc, char** argv)
 {
@@ -744,8 +736,6 @@ main(int argc, char** argv)
   char* in;
   char* line_end;
   size_t graph_index;
-
-  signal(SIGSEGV, sighandler);
 
   cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
 
@@ -930,10 +920,9 @@ plot_gauge(struct canvas* canvas,
     if(flags & PLOT_NEGATIVE)
       value = -value;
 
-    y = height - (value - global_min) * (height - 1) / (global_max - global_min) - 1;
-
-    assert(y >= 0);
-    assert(y < height);
+    y = height
+      - (value - global_min) * (height - 1) / (global_max - global_min)
+      - 1;
 
     if(prev_y != -1)
       draw_line(canvas, graph_x + x - 1, graph_y + prev_y, graph_x + x, graph_y + y, color);
@@ -1373,7 +1362,7 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
   for(curve = 0; curve < g->curve_count; ++curve)
   {
     struct curve* c = &g->curves[curve];
-    int area = 0;
+    int area = 0, first = 1;
 
     struct rrd_iterator iterator_average;
     struct rrd_iterator iterator_min;
@@ -1417,9 +1406,9 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
     iterator_max = c->work.eff_iterator[max];
 
     c->work.cur = rrd_iterator_last(&iterator_average);
-    c->work.max_avg = c->work.cur;
-    c->work.min_avg = c->work.cur;
-    c->work.min = c->work.cur;
+    c->work.max_avg = 0.0;
+    c->work.min_avg = 0.0;
+    c->work.min = 0.0;
     c->work.max = 0.0;
     c->work.avg = 0.0;
 
@@ -1446,10 +1435,20 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
         c->work.avg += avg_value;
         ++avg_count;
 
-        if(avg_value > c->work.max_avg)
-          c->work.max_avg = avg_value;
-        else if(avg_value < c->work.min_avg)
-          c->work.min_avg = avg_value;
+        if(first)
+          {
+            c->work.max_avg = avg_value;
+            c->work.min_avg = avg_value;
+            c->work.min = avg_value;
+            first = 0;
+          }
+        else
+          {
+            if(avg_value > c->work.max_avg)
+              c->work.max_avg = avg_value;
+            else if(avg_value < c->work.min_avg)
+              c->work.min_avg = avg_value;
+          }
       }
 
       if(!isnan(max_value) && max_value > c->work.max)
