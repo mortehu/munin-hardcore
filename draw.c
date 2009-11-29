@@ -19,8 +19,12 @@
 #define ANTI_ALIASING 1
 
 void
-draw_vline(struct canvas* canvas, int x, int y0, int y1, uint32_t color)
+draw_vline(struct canvas* canvas, size_t x, size_t y0, size_t y1, uint32_t color)
 {
+  if(x >= canvas->width
+     || y0 >= canvas->height || y1 >= canvas->height)
+    return;
+
   if(y0 > y1)
   {
     size_t tmp = y0;
@@ -47,6 +51,10 @@ draw_line(struct canvas* canvas, size_t x0, size_t y0, size_t x1, size_t y1, uin
   unsigned char* pixel;
   unsigned char r, g, b;
   int step_x, step_y, x, y;
+
+  if(x0 >= canvas->width || x1 >= canvas->width
+     || y0 >= canvas->height || y1 >= canvas->height)
+    return;
 
   r = color >> 16;
   g = color >> 8;
