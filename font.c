@@ -122,7 +122,7 @@ void
 font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direction)
 {
   int result;
-  FT_UInt idx;
+  FT_UInt last_idx = 0, idx;
   FTC_SBit sbit;
   size_t yy, xx;
 
@@ -164,6 +164,17 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
 
     int x_off = sbit->left;
     int y_off = -sbit->top + (ft_face->descender >> 8) - 1;
+
+    /*
+    if(FT_HAS_KERNING(ft_face) && last_idx)
+      {
+        FT_Vector kerning;
+
+        FT_Get_Kerning(ft_face, last_idx, idx, FT_KERNING_DEFAULT, &kerning);
+
+        x_off += kerning.x;
+      }
+      */
 
     switch(direction)
     {
@@ -263,6 +274,8 @@ font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direc
 
       break;
     }
+
+    last_idx = idx;
   }
 
   pthread_mutex_unlock(&ft_lock);
