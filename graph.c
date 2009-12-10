@@ -47,6 +47,13 @@ static const struct option long_options[] =
   { 0, 0, 0, 0 }
 };
 
+static enum
+{
+  ver_unknown,
+  ver_1_2,
+  ver_1_3
+} cur_version;
+
 static int debug = 0;
 static int nolazy = 0;
 static int cpu_count = 1;
@@ -308,6 +315,12 @@ parse_datafile(char* in)
   char* graph_key;
   char* tmp;
 
+  int host_terminator;
+  int graph_terminator;
+
+  host_terminator = (cur_version < ver_1_3) ? ':' : ';';
+  graph_terminator = (cur_version < ver_1_3) ? '.' : ';';
+
   while(*in)
   {
     key_start = in;
@@ -341,20 +354,19 @@ parse_datafile(char* in)
       host_start = domain_end + 1;
       *domain_end = 0;
 
-      host_end = strchr(host_start, ':');
-
-      if(!host_end)
-        errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a : character after host name", lineno, DATA_FILE);
+      if(0 == (host_end = strchr(host_start, host_terminator)))
+        errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a %c character after host name",
+             lineno, DATA_FILE, host_terminator);
 
       graph_start = host_end + 1;
       *host_end = 0;
 
-      if(0 != (graph_end = strchr(graph_start, '.')))
+      if(0 != (graph_end = strchr(graph_start, graph_terminator)))
       {
         struct graph* g;
 
         if(!graph_end)
-          errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a . character after graph name", lineno, DATA_FILE);
+          errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a %c character after graph name", lineno, DATA_FILE, graph_terminator);
 
         graph_key = graph_end + 1;
         *graph_end = 0;
@@ -362,7 +374,7 @@ parse_datafile(char* in)
         graph = find_graph(key_start, host_start, graph_start, 1);
         g = &graphs[graph];
 
-        if(0 != (tmp = strchr(graph_key, '.')))
+        if(0 != (tmp = strchr(graph_key, graph_terminator)))
         {
           char* curve_start;
           struct curve* c;
@@ -582,6 +594,10 @@ process_graph(size_t graph_index)
   struct graph* g = &graphs[graph_index];
   size_t curve;
 
+  int curve_terminator;
+
+  curve_terminator = (cur_version < ver_1_3) ? '.' : ';';
+
   if(g->nograph)
   {
     free(g->curves);
@@ -612,13 +628,13 @@ process_graph(size_t graph_index)
         if(strchr(curve_name, ' '))
           *strchr(curve_name, ' ' ) = 0;
 
-        if(strchr(curve_name, '.'))
+        if(strchr(curve_name, curve_terminator))
         {
           char* graph_name;
           ssize_t eff_graph_index;
 
           graph_name = curve_name;
-          curve_name = strchr(graph_name, '.');
+          curve_name = strchr(graph_name, curve_terminator);
           *curve_name++ = 0;
 
           eff_graph_index = find_graph(g->domain, g->host, graph_name, 0);
@@ -730,6 +746,7 @@ graph_thread(void* varg)
 int
 main(int argc, char** argv)
 {
+  unsigned int ver_major, ver_minor, ver_patch;
   FILE* f;
   size_t data_size;
   char* data;
@@ -840,13 +857,16 @@ main(int argc, char** argv)
   if(!line_end)
     errx(EXIT_FAILURE, "No newlines in '%s'", DATA_FILE);
 
-  unsigned int ver_major, ver_minor, ver_patch;
-
   if(3 != sscanf(in, "version %u.%u.%u\n", &ver_major, &ver_minor, &ver_patch))
     errx(EXIT_FAILURE, "Unsupported version signature at start of '%s'", DATA_FILE);
 
-  if(ver_major != 1 || ver_minor != 2)
-    errx(EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2", ver_major, ver_minor);
+  if(ver_major == 1 && ver_minor == 2)
+    cur_version = ver_1_2;
+  else if(ver_major == 1 && ver_minor == 3)
+    cur_version = ver_1_3;
+
+  if(cur_version == ver_unknown)
+    errx(EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2 to 1.3", ver_major, ver_minor);
 
   in = line_end + 1;
 
@@ -1309,7 +1329,10 @@ do_graph(struct graph* g, size_t interval, const char* suffix)
 
   char* png_path;
 
-  asprintf(&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
+  if(cur_version < ver_1_3)
+    asprintf(&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
+  else
+    asprintf(&png_path, "%s/%s/%s/%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
 
   struct stat png_stat;
 
