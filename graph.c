@@ -1899,14 +1899,22 @@ cdef_eval(const struct rrd_iterator* iterator, size_t index, void* vargs)
     case cdef_div:
 
       --sp;
-      stack[sp - 1] /= stack[sp];
+
+      if(!isfinite(stack[sp - 1]) || !isfinite(stack[sp]))
+        stack[sp - 1] = NAN;
+      else
+        stack[sp - 1] /= stack[sp];
 
       break;
 
     case cdef_mod:
 
       --sp;
-      stack[sp - 1] = fmod(stack[sp - 1], stack[sp]);
+
+      if(!isfinite(stack[sp - 1]) || !isfinite(stack[sp]))
+        stack[sp - 1] = NAN;
+      else
+        stack[sp - 1] = fmod(stack[sp - 1], stack[sp]);
 
       break;
 
