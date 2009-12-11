@@ -8,8 +8,11 @@
 .deps
 .nfs*
 Makefile
+Makefile.in
+aclocal.m4
+configure
 core
 core.*
-vgcore.*
 munin-hardcore-graph
 munin-hardcore-node
+vgcore.*
