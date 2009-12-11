@@ -625,7 +625,9 @@ process_graph(size_t graph_index)
 
       if(ch && ch[strlen(c->name)] == '=')
       {
-        curve_name = strdupa(ch + strlen(c->name) + 1);
+        ch += strlen(c->name) + 1;
+        curve_name = alloca(strlen(ch) + 1);
+        strcpy(curve_name, ch);
 
         if(strchr(curve_name, ' '))
           *strchr(curve_name, ' ' ) = 0;
@@ -1179,8 +1181,12 @@ const struct time_args time_args[] =
 int
 pmkdir(const char* path, int mode)
 {
-  char* p = strdupa(path);
-  char* t = p + 1;
+  char* p;
+  char* t;
+
+  p = alloca(strlen(path) + 1);
+  strcpy(p, path);
+  t = p + 1;
 
   while(0 != (t = strchr(t, '/')))
   {
