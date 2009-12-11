@@ -25,6 +25,7 @@
 #include <time.h>
 
 #include <err.h>
+#include <execinfo.h>
 #include <getopt.h>
 #include <pthread.h>
 #include <semaphore.h>
@@ -38,14 +39,26 @@
 #include "munin.h"
 #include "rrd.h"
 
+static int debug = 0;
+static int nolazy = 0;
+static int cpu_count = 1;
+static const char* datafile = "/var/lib/munin/datafile";
+
 static const struct option long_options[] =
 {
-  { "debug", 0, 0, 'd' },
-  { "no-lazy", 0, 0, 'n' },
-  { "help", 0, 0, 'h' },
-  { "version", 0, 0, 'v' },
-  { 0, 0, 0, 0 }
+  { "data-file", required_argument, 0, 'D' },
+  { "debug",     no_argument, &debug, 1 },
+  { "no-lazy",   no_argument, 0, 'n' },
+  { "help",      no_argument, 0, 'h' },
+  { "version",   no_argument, 0, 'v' },
+  { 0,           no_argument, 0, 0 }
 };
+
+static const char* tmpldir = "/etc/munin/templates";
+static const char* htmldir = "/var/www/munin";
+static const char* dbdir = "/var/lib/munin";
+static const char* rundir = "/var/run/munin";
+static const char* logdir = "/var/log/munin";
 
 static enum
 {
@@ -53,10 +66,6 @@ static enum
   ver_1_2,
   ver_1_3
 } cur_version;
-
-static int debug = 0;
-static int nolazy = 0;
-static int cpu_count = 1;
 
 static sem_t thread_semaphore;
 
@@ -73,6 +82,7 @@ help(const char* argv0)
          "Mandatory arguments to long options are mandatory for short"
          " options too\n"
          "\n"
+         "     --data-file=FILE       read data from FILE\n"
          " -d, --debug                print debug messages\n"
          " -n, --no-lazy              redraw every single graph\n"
          "     --help     display this help and exit\n"
@@ -106,14 +116,6 @@ find_curve(const struct graph* g, const char* name);
 static struct graph* graphs;
 static size_t graph_count;
 static size_t graph_alloc;
-
-static const char* tmpldir = "/etc/munin/templates";
-static const char* htmldir = "/var/www/munin";
-static const char* dbdir = "/var/lib/munin";
-static const char* rundir = "/var/run/munin";
-static const char* logdir = "/var/log/munin";
-
-#define DATA_FILE "/var/lib/munin/datafile"
 
 #define MAX_DIM 2048
 #define LINE_HEIGHT 14
@@ -341,7 +343,7 @@ parse_datafile(char* in)
     key_end = strchr(key_start, ' ');
 
     if(!key_end)
-      errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a SPACE character", lineno, DATA_FILE);
+      errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a SPACE character", lineno, datafile);
 
     value_start = key_end + 1;
     *key_end = 0;
@@ -356,7 +358,7 @@ parse_datafile(char* in)
 
       if(0 == (host_end = strchr(host_start, host_terminator)))
         errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a %c character after host name",
-             lineno, DATA_FILE, host_terminator);
+             lineno, datafile, host_terminator);
 
       graph_start = host_end + 1;
       *host_end = 0;
@@ -366,7 +368,7 @@ parse_datafile(char* in)
         struct graph* g;
 
         if(!graph_end)
-          errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a %c character after graph name", lineno, DATA_FILE, graph_terminator);
+          errx(EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a %c character after graph name", lineno, datafile, graph_terminator);
 
         graph_key = graph_end + 1;
         *graph_end = 0;
@@ -743,6 +745,24 @@ graph_thread(void* varg)
   return 0;
 }
 
+void
+sighandler(int signal)
+{
+  void* array[30];
+  char** strings;
+  size_t i, size;
+
+  size = backtrace(array, sizeof(array) / sizeof(array[0]));
+  strings = backtrace_symbols(array, size);
+
+  fprintf(stderr, "Got signal %d\n", signal);
+
+  for(i = 0; i < size; i++)
+    fprintf(stderr, "%s\n", strings[i]);
+
+  exit(EXIT_FAILURE);
+}
+
 int
 main(int argc, char** argv)
 {
@@ -753,6 +773,9 @@ main(int argc, char** argv)
   char* in;
   char* line_end;
   size_t graph_index;
+
+  signal(SIGSEGV, sighandler);
+  signal(SIGFPE, sighandler);
 
   cpu_count = sysconf(_SC_NPROCESSORS_ONLN);
 
@@ -768,9 +791,9 @@ main(int argc, char** argv)
 
     switch(c)
     {
-    case 'd':
+    case 'D':
 
-      debug = 1;
+      datafile = optarg;
 
       break;
 
@@ -831,21 +854,21 @@ main(int argc, char** argv)
 
   font_init();
 
-  if(!(f = fopen(DATA_FILE, "r")))
-    errx(EXIT_FAILURE, "Failed to open '%s' for reading: %s", DATA_FILE, strerror(errno));
+  if(!(f = fopen(datafile, "r")))
+    errx(EXIT_FAILURE, "Failed to open '%s' for reading: %s", datafile, strerror(errno));
 
   if(-1 == (fseek(f, 0, SEEK_END)))
-    errx(EXIT_FAILURE, "Failed to seek to end of '%s': %s", DATA_FILE, strerror(errno));
+    errx(EXIT_FAILURE, "Failed to seek to end of '%s': %s", datafile, strerror(errno));
 
   data_size = ftell(f);
 
   if(-1 == (fseek(f, 0, SEEK_SET)))
-    errx(EXIT_FAILURE, "Failed to seek to start of '%s': %s", DATA_FILE, strerror(errno));
+    errx(EXIT_FAILURE, "Failed to seek to start of '%s': %s", datafile, strerror(errno));
 
   data = malloc(data_size + 1);
 
   if(data_size != fread(data, 1, data_size, f))
-    errx(EXIT_FAILURE, "Error reading %zu bytes from '%s': %s", (size_t) data_size, DATA_FILE, strerror(errno));
+    errx(EXIT_FAILURE, "Error reading %zu bytes from '%s': %s", (size_t) data_size, datafile, strerror(errno));
 
   fclose(f);
 
@@ -855,10 +878,10 @@ main(int argc, char** argv)
   line_end = strchr(in, '\n');
 
   if(!line_end)
-    errx(EXIT_FAILURE, "No newlines in '%s'", DATA_FILE);
+    errx(EXIT_FAILURE, "No newlines in '%s'", datafile);
 
   if(3 != sscanf(in, "version %u.%u.%u\n", &ver_major, &ver_minor, &ver_patch))
-    errx(EXIT_FAILURE, "Unsupported version signature at start of '%s'", DATA_FILE);
+    errx(EXIT_FAILURE, "Unsupported version signature at start of '%s'", datafile);
 
   if(ver_major == 1 && ver_minor == 2)
     cur_version = ver_1_2;
