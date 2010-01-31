@@ -38,6 +38,21 @@
 #include "munin.h"
 #include "rrd.h"
 
+#define PLOT_NEGATIVE 0x0001
+
+#define MAX_DIM 2048
+#define LINE_HEIGHT 14
+
+#define INTERVAL_MONTH -1
+
+struct time_args
+{
+  const char* format;
+  time_t bias;
+  time_t label_interval;
+  time_t bar_interval;
+};
+
 static int debug = 0;
 static int nolazy = 0;
 
@@ -51,13 +66,56 @@ static const struct option long_options[] =
     { 0, 0, 0, 0 }
 };
 
+static const uint32_t colors[] =
+{
+  0x21fb21, 0x0022ff, 0xff0000, 0x00aaaa, 0xff00ff, 0xffa500, 0xcc0000,
+  0x0000cc, 0x0080c0, 0x8080c0, 0xff0080, 0x800080, 0x688e23, 0x408080,
+  0x808000, 0x000000
+};
+
+const struct time_args time_args[] =
+{
+    { "%a %H:%M", 0, 43200, 3600 },
+    { "%d", 0, 86400, 21600 },
+    { "Week %V", 345600, 86400 * 7, 86400 },
+    { "%b", 0, INTERVAL_MONTH, 0 },
+};
+
 static int cpu_count = 1;
 
 static sem_t thread_semaphore;
 
 static FILE* stats;
-static struct timeval graph_start, graph_end;
 static struct timeval domain_start, domain_end;
+
+static struct graph* graphs;
+static size_t graph_count;
+static size_t graph_alloc;
+
+static const char* tmpldir = "/etc/munin/templates";
+static const char* htmldir = "/var/www/munin";
+static const char* dbdir = "/var/lib/munin";
+static const char* rundir = "/var/run/munin";
+static const char* logdir = "/var/log/munin";
+
+static const char* datafile = "/var/lib/munin/datafile";
+
+static __thread const char* graph_order;
+
+void
+do_graph (struct graph* g, size_t interval, const char* suffix);
+
+double
+cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs);
+
+void
+cdef_create_iterator (struct rrd_iterator* result, struct graph* g, struct curve* c, enum iterator_name name, size_t max_count);
+
+int
+cdef_compile (struct cdef_script* target, struct graph* g, const char* string);
+
+const struct curve*
+find_curve (const struct graph* g, const char* name);
 
 static void
 help (const char* argv0)
@@ -76,43 +134,6 @@ help (const char* argv0)
          "\n"
          "Report bugs to <morten@rashbox.org>.\n", argv0);
 }
-
-static const uint32_t colors[] =
-{
-  0x21fb21, 0x0022ff, 0xff0000, 0x00aaaa, 0xff00ff, 0xffa500, 0xcc0000,
-  0x0000cc, 0x0080c0, 0x8080c0, 0xff0080, 0x800080, 0x688e23, 0x408080,
-  0x808000, 0x000000
-};
-
-void
-do_graph (struct graph* g, size_t interval, const char* suffix);
-
-double
-cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs);
-
-void
-cdef_create_iterator (struct rrd_iterator* result, struct graph* g, struct curve* c, enum iterator_name name, size_t max_count);
-
-int
-cdef_compile (struct cdef_script* target, struct graph* g, const char* string);
-
-const struct curve*
-find_curve (const struct graph* g, const char* name);
-
-static struct graph* graphs;
-static size_t graph_count;
-static size_t graph_alloc;
-
-static const char* tmpldir = "/etc/munin/templates";
-static const char* htmldir = "/var/www/munin";
-static const char* dbdir = "/var/lib/munin";
-static const char* rundir = "/var/run/munin";
-static const char* logdir = "/var/log/munin";
-
-static const char* datafile = "/var/lib/munin/datafile";
-
-#define MAX_DIM 2048
-#define LINE_HEIGHT 14
 
 ssize_t
 find_graph (const char* domain, const char* host, const char* name, int create)
@@ -198,8 +219,6 @@ strword (const char* haystack, const char* needle)
 
   return 0;
 }
-
-static const char* graph_order;
 
 int
 curve_name_cmp (const void* plhs, const void* prhs)
@@ -584,6 +603,7 @@ process_graph (size_t graph_index)
 {
   struct graph* g = &graphs[graph_index];
   size_t curve;
+  struct timeval graph_start, graph_end;
 
   if (g->nograph)
     {
@@ -592,7 +612,7 @@ process_graph (size_t graph_index)
       return;
     }
 
-  graph_start = graph_end;
+  gettimeofday (&graph_start, 0);
 
   for (curve = 0; curve < g->curve_count; )
     {
@@ -677,9 +697,6 @@ skip_data_source:
 
   if (g->curve_count)
     {
-      for (curve = 0; curve < g->curve_count; ++curve)
-        assert (g->curves[curve].data.data);
-
       graph_order = g->order;
       qsort (g->curves, g->curve_count, sizeof (struct curve), curve_name_cmp);
 
@@ -688,10 +705,10 @@ skip_data_source:
       do_graph (g, 7200, "month");
       do_graph (g, 86400, "year");
 
-      gettimeofday (&graph_end, 0);
-
       if (stats)
         {
+          gettimeofday (&graph_end, 0);
+
           fprintf (stats, "GS|%s|%s|%s|%.3f\n", g->domain, g->host, g->name,
                   graph_end.tv_sec - graph_start.tv_sec + (graph_end.tv_usec - graph_start.tv_usec) * 1.0e-6);
 
@@ -858,8 +875,7 @@ main (int argc, char** argv)
 
   qsort (graphs, graph_count, sizeof (struct graph), graph_cmp);
 
-  gettimeofday (&graph_end, 0);
-  domain_start = graph_end;
+  gettimeofday (&domain_start, 0);
 
   for (graph_index = 0; graph_index < graph_count; ++graph_index)
     {
@@ -895,8 +911,6 @@ main (int argc, char** argv)
 
   return EXIT_SUCCESS;
 }
-
-#define PLOT_NEGATIVE 0x0001
 
 void
 plot_gauge (struct canvas* canvas,
@@ -1118,24 +1132,6 @@ print_numbers (struct canvas* canvas, size_t x, size_t y, double neg, double pos
   format_number (strchr (buf, 0), pos);
   font_draw (canvas, x, y, buf, -1);
 }
-
-struct time_args
-{
-  const char* format;
-  time_t bias;
-  time_t label_interval;
-  time_t bar_interval;
-};
-
-#define INTERVAL_MONTH -1
-
-const struct time_args time_args[] =
-{
-    { "%a %H:%M", 0, 43200, 3600 },
-    { "%d", 0, 86400, 21600 },
-    { "Week %V", 345600, 86400 * 7, 86400 },
-    { "%b", 0, INTERVAL_MONTH, 0 },
-};
 
 int
 pmkdir (const char* path, int mode)
@@ -1965,7 +1961,7 @@ cdef_create_iterator (struct rrd_iterator* result, struct graph* g, struct curve
   result->count = min_count;
   result->generator = cdef_eval;
   result->generator_arg = args;
-};
+}
 
 int
 cdef_compile (struct cdef_script* target, struct graph* g, const char* string)
