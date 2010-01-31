@@ -143,8 +143,8 @@ find_graph (const char* domain, const char* host, const char* name, int create)
   for (i = graph_count; i-- > 0; )
     {
       if (!strcmp (graphs[i].domain, domain)
-         && !strcmp (graphs[i].host, host)
-         && !strcmp (graphs[i].name, name))
+          && !strcmp (graphs[i].host, host)
+          && !strcmp (graphs[i].name, name))
         return i;
     }
 
@@ -1354,8 +1354,8 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
       if (c->data.header.ds_count)
         {
           if (-1 == rrd_iterator_create (&c->work.iterator[average], &c->data, "AVERAGE", interval, graph_width)
-             || -1 == rrd_iterator_create (&c->work.iterator[min],     &c->data, "MIN",     interval, graph_width)
-             || -1 == rrd_iterator_create (&c->work.iterator[max],     &c->data, "MAX",     interval, graph_width))
+             || -1 == rrd_iterator_create (&c->work.iterator[min],   &c->data, "MIN",     interval, graph_width)
+             || -1 == rrd_iterator_create (&c->work.iterator[max],   &c->data, "MAX",     interval, graph_width))
             errx (EXIT_FAILURE, "Did not find all required round robin archives in '%s'", c->path);
         }
     }
