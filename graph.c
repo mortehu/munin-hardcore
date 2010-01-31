@@ -653,26 +653,33 @@ process_graph (size_t graph_index)
       if (-1 == asprintf (&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, eff_g->domain, eff_g->host, eff_g->name, eff_c->name, suffix))
         errx (EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror (errno));
 
-      if (-1 == rrd_parse (&c->data, c->path) && !c->cdef)
+      if (0 == rrd_parse (&c->data, c->path) && !c->cdef)
         {
-skip_data_source:
+          assert (c->data.data);
 
-          if (debug)
-            fprintf (stderr, "Skipping data source %s.%s.%s.%s\n", g->domain, g->host, g->name, c->name);
-
-          free (c->path);
-
-          --g->curve_count;
-          memmove (&g->curves[curve], &g->curves[curve + 1], sizeof (struct curve) * (g->curve_count - curve));
+          ++curve;
 
           continue;
         }
 
-      ++curve;
+skip_data_source:
+
+      if (debug)
+        fprintf (stderr, "Skipping data source %s.%s.%s.%s\n", g->domain, g->host, g->name, c->name);
+
+      free (c->path);
+
+      --g->curve_count;
+      memmove (&g->curves[curve], &g->curves[curve + 1], sizeof (struct curve) * (g->curve_count - curve));
+
+      continue;
     }
 
   if (g->curve_count)
     {
+      for (curve = 0; curve < g->curve_count; ++curve)
+        assert (g->curves[curve].data.data);
+
       graph_order = g->order;
       qsort (g->curves, g->curve_count, sizeof (struct curve), curve_name_cmp);
 
