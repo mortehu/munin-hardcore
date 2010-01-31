@@ -12,7 +12,7 @@
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ */
 
 #include <err.h>
 #include <math.h>
@@ -37,7 +37,7 @@ pthread_mutex_t ft_lock = PTHREAD_MUTEX_INITIALIZER;
 #define FONT_CACHE_SIZE (1024 * 1024)
 
 static FT_Error
-face_requester(FTC_FaceID face_id, FT_Library library, FT_Pointer request_data, FT_Face* aface)
+face_requester (FTC_FaceID face_id, FT_Library library, FT_Pointer request_data, FT_Face* aface)
 {
   *aface = ft_face;
 
@@ -45,238 +45,225 @@ face_requester(FTC_FaceID face_id, FT_Library library, FT_Pointer request_data, 
 }
 
 void
-font_init()
+font_init ()
 {
   int result;
 
-  result = FT_Init_FreeType(&ft_library);
+  result = FT_Init_FreeType (&ft_library);
 
-  if(result)
-    errx(EXIT_FAILURE, "Error initializing FreeType: %d", result);
+  if (result)
+    errx (EXIT_FAILURE, "Error initializing FreeType: %d", result);
 
-  if(0 != (result = FT_New_Face(ft_library, FONT_NAME, 0, &ft_face)))
-    errx(EXIT_FAILURE, "Error opening font '%s': %d", FONT_NAME, result);
+  if (0 != (result = FT_New_Face (ft_library, FONT_NAME, 0, &ft_face)))
+    errx (EXIT_FAILURE, "Error opening font '%s': %d", FONT_NAME, result);
 
-  if(0 != (result = FT_Set_Pixel_Sizes(ft_face, 0, 10)))
-    errx(EXIT_FAILURE, "Error setting size (%d pixels): %d", 10, result);
+  if (0 != (result = FT_Set_Pixel_Sizes (ft_face, 0, 10)))
+    errx (EXIT_FAILURE, "Error setting size (%d pixels): %d", 10, result);
 
-  if(0 != (result = FTC_Manager_New(ft_library, 1, 1, FONT_CACHE_SIZE, face_requester, NULL, &ft_cache_mgr)))
-    errx(EXIT_FAILURE, "Failed to create font cache manager: %d", result);
+  if (0 != (result = FTC_Manager_New (ft_library, 1, 1, FONT_CACHE_SIZE, face_requester, NULL, &ft_cache_mgr)))
+    errx (EXIT_FAILURE, "Failed to create font cache manager: %d", result);
 
-  if(0 != (result = FTC_SBitCache_New(ft_cache_mgr, &ft_sbit_cache)))
-    errx(EXIT_FAILURE, "Failed to create font image cache: %d", result);
+  if (0 != (result = FTC_SBitCache_New (ft_cache_mgr, &ft_sbit_cache)))
+    errx (EXIT_FAILURE, "Failed to create font image cache: %d", result);
 
-  memset(&ft_image_type, 0, sizeof(ft_image_type));
+  memset (&ft_image_type, 0, sizeof (ft_image_type));
   ft_image_type.width = 10;
   ft_image_type.height = 10;
   ft_image_type.flags = FT_LOAD_DEFAULT | FT_LOAD_RENDER;
 }
 
 size_t
-font_width(const char* text)
+font_width (const char* text)
 {
   size_t width = 0;
   int result;
   FT_UInt idx;
   FTC_SBit sbit;
 
-  pthread_mutex_lock(&ft_lock);
+  pthread_mutex_lock (&ft_lock);
 
-  while(*text)
-  {
-    unsigned int n = 0, ch = *text++;
+  while (*text)
+    {
+      unsigned int n = 0, ch = *text++;
 
-    if(!(ch & 0x80))
-      n = 0;
-    else if((ch & 0xE0) == 0xC0)
-      ch &= 0x1F, n = 1;
-    else if((ch & 0xF0) == 0xE0)
-      ch &= 0x0F, n = 2;
-    else if((ch & 0xF8) == 0xF0)
-      ch &= 0x07, n = 3;
-    else if((ch & 0xFC) == 0xF8)
-      ch &= 0x03, n = 4;
-    else if((ch & 0xFE) == 0xFC)
-      ch &= 0x01, n = 5;
+      if (!(ch & 0x80))
+        n = 0;
+      else if ((ch & 0xE0) == 0xC0)
+        ch &= 0x1F, n = 1;
+      else if ((ch & 0xF0) == 0xE0)
+        ch &= 0x0F, n = 2;
+      else if ((ch & 0xF8) == 0xF0)
+        ch &= 0x07, n = 3;
+      else if ((ch & 0xFC) == 0xF8)
+        ch &= 0x03, n = 4;
+      else if ((ch & 0xFE) == 0xFC)
+        ch &= 0x01, n = 5;
 
-    while(n-- && *text)
-      ch <<= 6, ch |= (*text++ & 0x3F);
+      while (n-- && *text)
+        ch <<= 6, ch |= (*text++ & 0x3F);
 
-    idx = FT_Get_Char_Index(ft_face, ch);
+      idx = FT_Get_Char_Index (ft_face, ch);
 
-    if(!idx)
-      continue;
+      if (!idx)
+        continue;
 
-    if(0 != (result = FTC_SBitCache_Lookup(ft_sbit_cache, &ft_image_type, idx, &sbit, 0)))
-      continue;
+      if (0 != (result = FTC_SBitCache_Lookup (ft_sbit_cache, &ft_image_type, idx, &sbit, 0)))
+        continue;
 
-    width += sbit->xadvance;
-  }
+      width += sbit->xadvance;
+    }
 
-  pthread_mutex_unlock(&ft_lock);
+  pthread_mutex_unlock (&ft_lock);
 
   return width;
 }
 
 void
-font_draw(struct canvas* canvas, size_t x, size_t y, const char* text, int direction)
+font_draw (struct canvas* canvas, size_t x, size_t y, const char* text, int direction)
 {
   int result;
-  FT_UInt last_idx = 0, idx;
+  FT_UInt idx;
   FTC_SBit sbit;
   size_t yy, xx;
 
-  if(direction == -1)
-    x -= font_width(text);
-  else if(direction == -2)
-    x -= font_width(text) >> 1;
+  if (direction == -1)
+    x -= font_width (text);
+  else if (direction == -2)
+    x -= font_width (text) >> 1;
 
-  pthread_mutex_lock(&ft_lock);
+  pthread_mutex_lock (&ft_lock);
 
-  while(*text)
-  {
-    unsigned int n = 0, ch = *text++;
-
-    if(!(ch & 0x80))
-      n = 0;
-    else if((ch & 0xE0) == 0xC0)
-      ch &= 0x1F, n = 1;
-    else if((ch & 0xF0) == 0xE0)
-      ch &= 0x0F, n = 2;
-    else if((ch & 0xF8) == 0xF0)
-      ch &= 0x07, n = 3;
-    else if((ch & 0xFC) == 0xF8)
-      ch &= 0x03, n = 4;
-    else if((ch & 0xFE) == 0xFC)
-      ch &= 0x01, n = 5;
-
-    if(n)
-      while(n-- && *text)
-        ch <<= 6, ch |= (*text++ & 0x3F);
-
-    idx = FT_Get_Char_Index(ft_face, ch);
-
-    if(!idx)
-      continue;
-
-    if(0 != (result = FTC_SBitCache_Lookup(ft_sbit_cache, &ft_image_type, idx, &sbit, 0)))
-      continue;
-
-    int x_off = sbit->left;
-    int y_off = -sbit->top + (ft_face->descender >> 8) - 1;
-
-    /*
-    if(FT_HAS_KERNING(ft_face) && last_idx)
-      {
-        FT_Vector kerning;
-
-        FT_Get_Kerning(ft_face, last_idx, idx, FT_KERNING_DEFAULT, &kerning);
-
-        x_off += kerning.x;
-      }
-      */
-
-    switch(direction)
+  while (*text)
     {
-    case -2:
-    case -1:
-    case 0:
+      unsigned int n = 0, ch = *text++;
 
-      for(yy = 0; yy < sbit->height; ++yy)
-      {
-        int eff_y = (y + yy + y_off);
+      if (!(ch & 0x80))
+        n = 0;
+      else if ((ch & 0xE0) == 0xC0)
+        ch &= 0x1F, n = 1;
+      else if ((ch & 0xF0) == 0xE0)
+        ch &= 0x0F, n = 2;
+      else if ((ch & 0xF8) == 0xF0)
+        ch &= 0x07, n = 3;
+      else if ((ch & 0xFC) == 0xF8)
+        ch &= 0x03, n = 4;
+      else if ((ch & 0xFE) == 0xFC)
+        ch &= 0x01, n = 5;
 
-        if(eff_y < 0 || eff_y >= canvas->height)
-          continue;
+      if (n)
+        while (n-- && *text)
+          ch <<= 6, ch |= (*text++ & 0x3F);
 
-        for(xx = 0; xx < sbit->width; ++xx)
+      idx = FT_Get_Char_Index (ft_face, ch);
+
+      if (!idx)
+        continue;
+
+      if (0 != (result = FTC_SBitCache_Lookup (ft_sbit_cache, &ft_image_type, idx, &sbit, 0)))
+        continue;
+
+      int x_off = sbit->left;
+      int y_off = -sbit->top + (ft_face->descender >> 8) - 1;
+
+      switch (direction)
         {
-          int eff_x = (x + xx + x_off);
+        case -2:
+        case -1:
+        case 0:
 
-          if(eff_x < 0 || eff_x >= canvas->width)
-            continue;
+          for (yy = 0; yy < sbit->height; ++yy)
+            {
+              int eff_y = (y + yy + y_off);
 
-          size_t i = (eff_y * canvas->width + eff_x) * 3;
+              if (eff_y < 0 || eff_y >= canvas->height)
+                continue;
 
-          unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];
-          unsigned int inv_alpha = 256 - alpha;
+              for (xx = 0; xx < sbit->width; ++xx)
+                {
+                  int eff_x = (x + xx + x_off);
 
-          canvas->data[i + 0] = (canvas->data[i + 0] * inv_alpha) >> 8;
-          canvas->data[i + 1] = (canvas->data[i + 1] * inv_alpha) >> 8;
-          canvas->data[i + 2] = (canvas->data[i + 2] * inv_alpha) >> 8;
+                  if (eff_x < 0 || eff_x >= canvas->width)
+                    continue;
+
+                  size_t i = (eff_y * canvas->width + eff_x) * 3;
+
+                  unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];
+                  unsigned int inv_alpha = 256 - alpha;
+
+                  canvas->data[i + 0] = (canvas->data[i + 0] * inv_alpha) >> 8;
+                  canvas->data[i + 1] = (canvas->data[i + 1] * inv_alpha) >> 8;
+                  canvas->data[i + 2] = (canvas->data[i + 2] * inv_alpha) >> 8;
+                }
+            }
+
+          x += sbit->xadvance;
+
+          break;
+
+        case 1:
+
+          for (yy = 0; yy < sbit->height; ++yy)
+            {
+              int eff_x = (x - yy - y_off);
+
+              if (eff_x < 0 || eff_x >= canvas->width)
+                continue;
+
+              for (xx = 0; xx < sbit->width; ++xx)
+                {
+                  int eff_y = (y + xx + x_off);
+
+                  if (eff_y < 0 || eff_y >= canvas->height)
+                    continue;
+
+
+                  size_t i = (eff_y * canvas->width + eff_x) * 3;
+
+                  unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];
+                  unsigned int inv_alpha = 256 - alpha;
+
+                  canvas->data[i + 0] = (canvas->data[i + 0] * inv_alpha) >> 8;
+                  canvas->data[i + 1] = (canvas->data[i + 1] * inv_alpha) >> 8;
+                  canvas->data[i + 2] = (canvas->data[i + 2] * inv_alpha) >> 8;
+                }
+            }
+
+          y += sbit->xadvance;
+
+          break;
+
+        case 2:
+
+          for (yy = 0; yy < sbit->height; ++yy)
+            {
+              int eff_x = (x + yy + y_off);
+
+              if (eff_x < 0 || eff_x >= canvas->width)
+                continue;
+
+              for (xx = 0; xx < sbit->width; ++xx)
+                {
+                  int eff_y = (y - xx - x_off);
+
+                  if (eff_y < 0 || eff_y >= canvas->height)
+                    continue;
+
+                  size_t i = (eff_y * canvas->width + eff_x) * 3;
+
+                  unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];
+                  unsigned int inv_alpha = 256 - alpha;
+
+                  canvas->data[i + 0] = (canvas->data[i + 0] * inv_alpha) >> 8;
+                  canvas->data[i + 1] = (canvas->data[i + 1] * inv_alpha) >> 8;
+                  canvas->data[i + 2] = (canvas->data[i + 2] * inv_alpha) >> 8;
+                }
+            }
+
+          y -= sbit->xadvance;
+
+          break;
         }
-      }
-
-      x += sbit->xadvance;
-
-      break;
-
-    case 1:
-
-      for(yy = 0; yy < sbit->height; ++yy)
-      {
-        int eff_x = (x - yy - y_off);
-
-        if(eff_x < 0 || eff_x >= canvas->width)
-          continue;
-
-        for(xx = 0; xx < sbit->width; ++xx)
-        {
-          int eff_y = (y + xx + x_off);
-
-          if(eff_y < 0 || eff_y >= canvas->height)
-            continue;
-
-
-          size_t i = (eff_y * canvas->width + eff_x) * 3;
-
-          unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];
-          unsigned int inv_alpha = 256 - alpha;
-
-          canvas->data[i + 0] = (canvas->data[i + 0] * inv_alpha) >> 8;
-          canvas->data[i + 1] = (canvas->data[i + 1] * inv_alpha) >> 8;
-          canvas->data[i + 2] = (canvas->data[i + 2] * inv_alpha) >> 8;
-        }
-      }
-
-      y += sbit->xadvance;
-
-      break;
-
-    case 2:
-
-      for(yy = 0; yy < sbit->height; ++yy)
-      {
-        int eff_x = (x + yy + y_off);
-
-        if(eff_x < 0 || eff_x >= canvas->width)
-          continue;
-
-        for(xx = 0; xx < sbit->width; ++xx)
-        {
-          int eff_y = (y - xx - x_off);
-
-          if(eff_y < 0 || eff_y >= canvas->height)
-            continue;
-
-          size_t i = (eff_y * canvas->width + eff_x) * 3;
-
-          unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];
-          unsigned int inv_alpha = 256 - alpha;
-
-          canvas->data[i + 0] = (canvas->data[i + 0] * inv_alpha) >> 8;
-          canvas->data[i + 1] = (canvas->data[i + 1] * inv_alpha) >> 8;
-          canvas->data[i + 2] = (canvas->data[i + 2] * inv_alpha) >> 8;
-        }
-      }
-
-      y -= sbit->xadvance;
-
-      break;
     }
 
-    last_idx = idx;
-  }
-
-  pthread_mutex_unlock(&ft_lock);
+  pthread_mutex_unlock (&ft_lock);
 }

@@ -91,24 +91,24 @@ struct rrd_iterator
 };
 
 #define rrd_iterator_peek_index(i, index) \
-    ((i)->generator ? (i)->generator(i, + index, (i)->generator_arg) \
-                    : ((i)->values[(i)->offset + ((index + (i)->first) % (i)->count) * (i)->step + (i)->ds]))
+  ((i)->generator ? (i)->generator (i, + index, (i)->generator_arg) \
+   : ((i)->values[(i)->offset + ((index + (i)->first) % (i)->count) * (i)->step + (i)->ds]))
 
-#define rrd_iterator_peek(i) rrd_iterator_peek_index(i, (i)->current_position)
+#define rrd_iterator_peek(i) rrd_iterator_peek_index (i, (i)->current_position)
 
-#define rrd_iterator_last(i) rrd_iterator_peek_index(i, (i)->count - 1)
+#define rrd_iterator_last(i) rrd_iterator_peek_index (i, (i)->count - 1)
 
 #define rrd_iterator_advance(i) \
-    do { ++(i)->current_position; } while(0)
+  do { ++(i)->current_position; } while (0)
 
 int
-rrd_parse(struct rrd* result, const char* filename);
+rrd_parse (struct rrd* result, const char* filename);
 
 void
-rrd_free(struct rrd* data);
+rrd_free (struct rrd* data);
 
 int
-rrd_iterator_create(struct rrd_iterator* result, const struct rrd* data,
+rrd_iterator_create (struct rrd_iterator* result, const struct rrd* data,
                     const char* cf_name, size_t interval,
                     size_t max_count);
 

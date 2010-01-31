@@ -19,10 +19,10 @@ struct cdef_token
   enum cdef_token_type type;
 
   union
-  {
-    double constant;
-    const struct curve* curve;
-  } v;
+    {
+      double constant;
+      const struct curve* curve;
+    } v;
 };
 
 struct cdef_script
@@ -62,17 +62,17 @@ struct curve
   double warning, critical;
 
   struct
-  {
-    struct cdef_script script;
+    {
+      struct cdef_script script;
 
-    double cur, max, min, avg;
-    double max_avg, min_avg;
-    const struct curve* negative;
+      double cur, max, min, avg;
+      double max_avg, min_avg;
+      const struct curve* negative;
 
-    struct rrd_iterator iterator[3];
-    struct rrd_iterator eff_iterator[3];
-    struct cdef_run_args script_args[3];
-  } work;
+      struct rrd_iterator iterator[3];
+      struct rrd_iterator eff_iterator[3];
+      struct cdef_run_args script_args[3];
+    } work;
 };
 
 struct graph
