@@ -107,7 +107,7 @@ rrd_parse (struct rrd* result, const char* filename)
 
   if (result->header.float_cookie != 8.642135E130)
     {
-      fprintf (stderr, "Floating point sanity test failed for '%s'\n", filename);
+      fprintf (stderr, "Floating point sanity test failed for '%s'.  Wrong CPU architecture?\n", filename);
 
       goto fail;
     }
