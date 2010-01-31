@@ -1309,7 +1309,8 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
 
   char* png_path;
 
-  asprintf (&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
+  if (-1 == asprintf (&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix))
+    err (EXIT_FAILURE, "asprintf failed");
 
   struct stat png_stat;
 

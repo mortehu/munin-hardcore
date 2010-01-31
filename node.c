@@ -17,6 +17,7 @@
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <err.h>
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -60,11 +61,7 @@ static void parse_config ()
   FILE* config = fopen (configfile, "r");
 
   if (!config)
-    {
-      fprintf (stderr, "Failed to open %s: %s\n", configfile, strerror (errno));
-
-      exit (EXIT_FAILURE);
-    }
+    err (EXIT_FAILURE, "Failed to open %s", configfile);
 
   char line[256];
   char* key;
@@ -104,11 +101,7 @@ static void parse_config ()
       if (!strcmp (key, "ignore_file"))
         {
           if (ignore_file_count == sizeof (ignore_file) / sizeof (ignore_file[0]))
-            {
-              fprintf (stderr, "Too many %s!\n", key);
-
-              exit (EXIT_FAILURE);
-            }
+            errx (EXIT_FAILURE, "Too many %s!", key);
 
           if (0 == regcomp (&ignore_file[ignore_file_count], value, 0))
             ++ignore_file_count;
@@ -116,11 +109,7 @@ static void parse_config ()
       else if (!strcmp (key, "allow"))
         {
           if (allow_ip_count == sizeof (allow_ip) / sizeof (allow_ip[0]))
-            {
-              fprintf (stderr, "Too many %s!\n", key);
-
-              exit (EXIT_FAILURE);
-            }
+            errx (EXIT_FAILURE, "Too many %s!\n", key);
 
           if (0 == regcomp (&allow_ip[allow_ip_count], value, 0))
             ++allow_ip_count;
@@ -144,18 +133,15 @@ int main (int argc, char** argv)
   gethostname (host_name, sizeof (host_name));
   host_name[sizeof (host_name) - 1] = 0;
 
-  nice (19);
+  if (-1 == nice (19))
+    err (EXIT_FAILURE, "Failed to set process priority to 19");
 
   parse_config ();
 
   pf = fopen (pidfile, "w");
 
   if (!pf)
-    {
-      fprintf (stderr, "Failed to create PID file '%s': %s\n", pidfile, strerror (errno));
-
-      return EXIT_FAILURE;
-    }
+    err (EXIT_FAILURE, "Failed to create PID file '%s'", pidfile);
 
   if (pf)
     {
@@ -171,11 +157,7 @@ int main (int argc, char** argv)
   address.sin_port = htons (listenport);
 
   if (-1 == (listenfd = socket (PF_INET, SOCK_STREAM, 0)))
-    {
-      fprintf (stderr, "Failed to create TCP socket: %s\n", strerror (errno));
-
-      return EXIT_FAILURE;
-    }
+    err (EXIT_FAILURE, "Failed to create TCP socket");
 
     {
       int one = 1;
@@ -184,20 +166,13 @@ int main (int argc, char** argv)
     }
 
   if (-1 == bind (listenfd, (struct sockaddr*) &address, sizeof (address)))
-    {
-      fprintf (stderr, "Failed to bind to TCP port %d: %s\n", listenport, strerror (errno));
-
-      return EXIT_FAILURE;
-    }
+    err (EXIT_FAILURE, "Failed to bind to TCP port %d", listenport);
 
   if (-1 == listen (listenfd, 16))
-    {
-      fprintf (stderr, "Failed to start listening on TCP socket: %s\n", strerror (errno));
+    err (EXIT_FAILURE, "Failed to start listening on TCP socket");
 
-      return EXIT_FAILURE;
-    }
-
-  daemon (0, 0);
+  if (-1 == daemon (0, 0))
+    err (EXIT_FAILURE, "Failed to detach from console");
 
   for (;;)
     {
@@ -312,7 +287,8 @@ int main (int argc, char** argv)
 
                   c = strchr (buffer, ' ') + 1;
 
-                  asprintf (&args[0], "/etc/munin/plugins/%s", c);
+                  if (-1 == asprintf (&args[0], "/etc/munin/plugins/%s", c))
+                    err (EXIT_FAILURE, "asprintf failed");
 
                   if (buffer[0] == 'c')
                     {
