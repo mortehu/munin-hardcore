@@ -1125,6 +1125,8 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
   const char *png_path_format;
   char* png_path;
 
+  struct stat png_stat;
+
   if (cur_version < ver_1_3)
     png_path_format = "%s/%s/%s-%s-%s.png";
   else
@@ -1132,8 +1134,6 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
 
   if (-1 == asprintf (&png_path, png_path_format, htmldir, g->domain, g->host, g->name, suffix))
     err (EX_OSERR, "asprintf failed");
-
-  struct stat png_stat;
 
   if (!nolazy && interval > 300 && 0 == stat (png_path, &png_stat))
     {
