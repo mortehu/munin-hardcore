@@ -74,9 +74,9 @@ FILE* stats;
 static int first_domain = 1;
 static struct timeval domain_start, domain_end;
 
-struct graph* graphs;
-size_t graph_count;
-size_t graph_alloc;
+struct graph* graphs = 0;
+size_t graph_count = 0;
+size_t graph_alloc = 0;
 
 const char* tmpldir = "/etc/munin/templates";
 const char* htmldir = "/var/www/munin";

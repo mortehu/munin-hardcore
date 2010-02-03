@@ -4,7 +4,7 @@ check_PROGRAMS = graph-check
 
 TESTS = graph-check
 
-AM_CFLAGS = -g -Wall -O3 -std=c99 -pthread
+AM_CFLAGS = -g -Wall -O3 -std=c99
 AM_CPPFLAGS = -I/usr/include/freetype2 -D_GNU_SOURCE
 
 munin_hardcore_node_SOURCES = node.c

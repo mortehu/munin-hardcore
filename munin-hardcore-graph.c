@@ -22,18 +22,16 @@
 #include <err.h>
 #include <getopt.h>
 #include <pthread.h>
-#include <semaphore.h>
+#include <signal.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sysexits.h>
 #include <unistd.h>
 
 #include "font.h"
 #include "graph.h"
 #include "munin.h"
-
-struct graph_thread_arg
-{
-  size_t graph_index;
-};
 
 static int cpu_count = 1;
 
@@ -48,8 +46,6 @@ static const struct option long_options[] =
 };
 
 static const char* datafile = "/var/lib/munin/datafile";
-
-static sem_t thread_semaphore;
 
 static void
 help (const char* argv0)
@@ -82,19 +78,11 @@ graph_cmp (const void* plhs, const void* prhs)
   return strcmp (lhs->name, rhs->name);
 }
 
-void*
-graph_thread (void* varg)
+void
+process_graphs(size_t offset, size_t step)
 {
-  struct graph_thread_arg* arg = varg;
-
-  process_graph (arg->graph_index);
-
-  free (graphs[arg->graph_index].curves);
-  free (arg);
-
-  sem_post (&thread_semaphore);
-
-  return 0;
+  for (; offset < graph_count; offset += step)
+    process_graph (offset);
 }
 
 int
@@ -102,11 +90,11 @@ main (int argc, char** argv)
 {
   unsigned int ver_major, ver_minor, ver_patch;
   FILE* f;
-  size_t data_size;
+  size_t i, data_size;
   char* data;
   char* in;
   char* line_end;
-  size_t graph_index;
+  pid_t *children;
 
   cpu_count = sysconf (_SC_NPROCESSORS_ONLN);
 
@@ -166,8 +154,6 @@ main (int argc, char** argv)
   if (cpu_count < 1)
     cpu_count = 1;
 
-  sem_init (&thread_semaphore, 0, cpu_count);
-
   stats = fopen ("/var/lib/munin/munin-graph.stats", "w");
 
   if (!stats && debug)
@@ -222,24 +208,28 @@ main (int argc, char** argv)
 
   qsort (graphs, graph_count, sizeof (struct graph), graph_cmp);
 
-  for (graph_index = 0; graph_index < graph_count; ++graph_index)
+  children = calloc (sizeof (*children), cpu_count);
+
+  if (!children)
+    err (EX_OSERR, "malloc failed");
+
+  for (i = 0; i < cpu_count; ++i)
     {
-      struct graph_thread_arg* arg;
-      pthread_t thread;
+      children[i] = fork ();
 
-      arg = malloc (sizeof (*arg));
-      arg->graph_index = graph_index;
+      if (children[i] == -1)
+        err (EX_OSERR, "fork failed");
 
-      sem_wait (&thread_semaphore);
-      pthread_create (&thread, 0, graph_thread, arg);
-      pthread_detach (thread);
+      if (!children[i])
+        {
+          process_graphs(i, cpu_count);
+
+          exit (EXIT_SUCCESS);
+        }
     }
 
-  while (cpu_count)
-    {
-      sem_wait (&thread_semaphore);
-      --cpu_count;
-    }
+  for (i = 0; i < cpu_count; ++i)
+    waitpid (children[i], 0, 0);
 
   if (stats)
     {
