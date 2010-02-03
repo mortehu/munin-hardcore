@@ -1241,11 +1241,6 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
 
           if (!isnan (avg_value))
             {
-              /*
-              if (area && avg_value < 0.0)
-                avg_value = 0.0;
-                */
-
               if (area)
                 {
                   maxs[x] += avg_value;
