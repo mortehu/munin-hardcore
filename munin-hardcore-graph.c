@@ -46,6 +46,7 @@ static const struct option long_options[] =
 };
 
 static const char* datafile = "/var/lib/munin/datafile";
+static struct graph *last_graph;
 
 static void
 help (const char* argv0)
@@ -79,10 +80,50 @@ graph_cmp (const void* plhs, const void* prhs)
 }
 
 void
+sigsegvhandler(int signal)
+{
+  static int first = 1;
+  size_t i;
+
+  if (!first)
+    exit (EX_SOFTWARE);
+
+  first = 0;
+
+  if (last_graph)
+    {
+      fprintf (stderr, "Segmentation fault while processing graph. domain=%s host=%s graph=%s\n",
+               last_graph->domain, last_graph->host, last_graph->name);
+
+      for (i = 0; i < last_graph->curve_count; ++i)
+        {
+          struct curve *c;
+
+          c = &last_graph->curves[i];
+
+          fprintf(stderr, "Data source #%zu: %s\n", i, c->path);
+
+          if (c->draw)     fprintf (stderr, "  draw=%s\n", c->draw);
+          if (c->negative) fprintf (stderr, "  negative=%s\n", c->negative);
+          if (c->cdef)     fprintf (stderr, "  cdef=%s\n", c->cdef);
+        }
+    }
+  else
+    fprintf (stderr, "Segmentation fault while not processing graph\n");
+
+  exit (EX_SOFTWARE);
+}
+
+void
 process_graphs(size_t offset, size_t step)
 {
   for (; offset < graph_count; offset += step)
-    process_graph (offset);
+    {
+      last_graph = &graphs[offset];
+      process_graph (offset);
+    }
+
+  last_graph = 0;
 }
 
 int
@@ -97,6 +138,8 @@ main (int argc, char** argv)
   pid_t *children;
 
   cpu_count = sysconf (_SC_NPROCESSORS_ONLN);
+
+  signal (SIGSEGV, sigsegvhandler);
 
   for (;;)
     {
