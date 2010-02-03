@@ -207,7 +207,6 @@ font_draw (struct canvas* canvas, size_t x, size_t y, const char* text, int dire
                   if (eff_y < 0 || eff_y >= canvas->height)
                     continue;
 
-
                   size_t i = (eff_y * canvas->width + eff_x) * 3;
 
                   unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];

@@ -37,11 +37,11 @@ main (int argc, char **argv)
       g->name = "test-graph";
 
       g->title = "Test graph";
-      g->args;
+      /* g->args; */
       g->category = "tests";
       g->info = "This is the test graph";
       g->order = "data02 data01 data00";
-      g->period;
+      /* g->period; */
       g->noscale = rand() & 1;
       g->total = "Totals";;
       g->vlabel = "Vertical label";
