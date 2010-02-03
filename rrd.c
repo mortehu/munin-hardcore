@@ -138,6 +138,13 @@ rrd_parse (struct rrd* result, const char* filename)
 
           goto fail;
         }
+
+      if (!result->rra_defs[i].row_count)
+        {
+          fprintf (stderr, "Zero rows in rr-archive in '%s'\n", filename);
+
+          goto fail;
+        }
     }
 
   if (version >= 3)

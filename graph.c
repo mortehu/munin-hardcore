@@ -1708,13 +1708,35 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
 
             {
               const struct curve* ref_c;
+              const struct rrd_iterator *ref_iterator;
 
               ref_c = script->tokens[i].v.curve;
 
-              if (ref_c == args->c)
-                stack[sp++] = rrd_iterator_peek_index (&ref_c->work.iterator[args->name], iterator->first + index);
-              else
-                stack[sp++] = rrd_iterator_peek_index (&ref_c->work.eff_iterator[args->name], index);
+              /* Avoid calling self-referncing CDEFs recursively */
+              ref_iterator
+                = (ref_c == args->c) ? &ref_c->work.iterator[args->name]
+                : &ref_c->work.eff_iterator[args->name];
+
+              if(!ref_iterator->count)
+                {
+                  static int first = 1;
+
+                  if(first)
+                    {
+                      first = 0;
+
+                      fprintf(stderr, "Software error: Iterator %p has zero length\n", ref_iterator);
+
+                      if(ref_c == args->c)
+                        fprintf(stderr, "CDEF token is self-referencing\n");
+
+                      fprintf(stderr, "Referenced curve is '%s'\n", ref_c->path);
+                    }
+
+                  return NAN;
+                }
+
+              stack[sp++] = rrd_iterator_peek_index(ref_iterator, index);
             }
 
           break;

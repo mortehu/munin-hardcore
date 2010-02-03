@@ -91,7 +91,7 @@ struct rrd_iterator
 };
 
 #define rrd_iterator_peek_index(i, index) \
-  ((i)->generator ? (i)->generator (i, + index, (i)->generator_arg) \
+  ((i)->generator ? (i)->generator (i, index, (i)->generator_arg) \
    : ((i)->values[(i)->offset + ((index + (i)->first) % (i)->count) * (i)->step + (i)->ds]))
 
 #define rrd_iterator_peek(i) rrd_iterator_peek_index (i, (i)->current_position)
