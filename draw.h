@@ -1,3 +1,6 @@
+#ifndef DRAW_H_
+#define DRAW_H_ 1
+
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -24,3 +27,5 @@ draw_pixel_50 (struct canvas* canvas, size_t x, size_t y, uint32_t color);
 
 int
 write_png (const char *file_name, size_t width, size_t height, unsigned char* data);
+
+#endif /* !DRAW_H_ */

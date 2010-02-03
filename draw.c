@@ -143,6 +143,15 @@ draw_rect (struct canvas* canvas, size_t x, size_t y, size_t width, size_t heigh
   unsigned char r, g, b;
   size_t yy, xx;
 
+  if (x > canvas->width || y > canvas->height)
+    return;
+
+  if (x + width > canvas->width)
+    width = canvas->width - x;
+
+  if (y + height > canvas->height)
+    height = canvas->height - y;
+
   r = color >> 16;
   g = color >> 8;
   b = color;

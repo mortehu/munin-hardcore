@@ -1,4 +1,4 @@
-/*  Entry point for munin-hardcore-graph.
+/*  Graphing functions.
     Copyright (C) 2009  Morten Hustveit <morten@rashbox.org>
 
     This program is free software: you can redistribute it and/or modify
@@ -25,10 +25,6 @@
 #include <time.h>
 
 #include <err.h>
-#include <getopt.h>
-#include <pthread.h>
-#include <semaphore.h>
-#include <sys/signal.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -53,19 +49,6 @@ struct time_args
   time_t bar_interval;
 };
 
-static int debug = 0;
-static int nolazy = 0;
-
-static const struct option long_options[] =
-{
-    { "data-file", required_argument, 0, 'd' },
-    { "debug",   no_argument, &debug, 1 },
-    { "no-lazy", no_argument, &nolazy, 1 },
-    { "help",    no_argument, 0, 'h' },
-    { "version", no_argument, 0, 'v' },
-    { 0, 0, 0, 0 }
-};
-
 static const uint32_t colors[] =
 {
   0x21fb21, 0x0022ff, 0xff0000, 0x00aaaa, 0xff00ff, 0xffa500, 0xcc0000,
@@ -81,24 +64,22 @@ const struct time_args time_args[] =
     { "%b", 0, INTERVAL_MONTH, 0 },
 };
 
-static int cpu_count = 1;
+int debug = 0;
+int nolazy = 0;
 
-static sem_t thread_semaphore;
-
-static FILE* stats;
+FILE* stats;
+static int first_domain = 1;
 static struct timeval domain_start, domain_end;
 
-static struct graph* graphs;
-static size_t graph_count;
-static size_t graph_alloc;
+struct graph* graphs;
+size_t graph_count;
+size_t graph_alloc;
 
-static const char* tmpldir = "/etc/munin/templates";
-static const char* htmldir = "/var/www/munin";
-static const char* dbdir = "/var/lib/munin";
-static const char* rundir = "/var/run/munin";
-static const char* logdir = "/var/log/munin";
-
-static const char* datafile = "/var/lib/munin/datafile";
+const char* tmpldir = "/etc/munin/templates";
+const char* htmldir = "/var/www/munin";
+const char* dbdir = "/var/lib/munin";
+const char* rundir = "/var/run/munin";
+const char* logdir = "/var/log/munin";
 
 static __thread const char* graph_order;
 
@@ -116,24 +97,6 @@ cdef_compile (struct cdef_script* target, struct graph* g, const char* string);
 
 const struct curve*
 find_curve (const struct graph* g, const char* name);
-
-static void
-help (const char* argv0)
-{
-  printf ("Usage: %s [OPTION]...\n"
-         "batch plotting of RRD data files\n"
-         "\n"
-         "Mandatory arguments to long options are mandatory for short"
-         " options too\n"
-         "\n"
-         "     --data-file=FILE       load graph information from FILE\n"
-         " -d, --debug                print debug messages\n"
-         " -n, --no-lazy              redraw every single graph\n"
-         "     --help     display this help and exit\n"
-         "     --version  display version information and exit\n"
-         "\n"
-         "Report bugs to <morten@rashbox.org>.\n", argv0);
-}
 
 ssize_t
 find_graph (const char* domain, const char* host, const char* name, int create)
@@ -245,19 +208,6 @@ curve_name_cmp (const void* plhs, const void* prhs)
   return strcmp (lhs->name, rhs->name);
 }
 
-int
-graph_cmp (const void* plhs, const void* prhs)
-{
-  const struct graph* lhs = plhs;
-  const struct graph* rhs = prhs;
-  int result;
-
-  if (0 != (result = strcmp (lhs->domain, rhs->domain)))
-    return result;
-
-  return strcmp (lhs->name, rhs->name);
-}
-
 const char* key_strings[] =
 {
   "cdef", "color", "colour", "critical",
@@ -313,7 +263,7 @@ lookup_key (const char* string)
 }
 
 void
-parse_datafile (char* in)
+parse_datafile (char* in, const char *pathname)
 {
   size_t curve, graph;
   size_t lineno = 2;
@@ -350,7 +300,7 @@ parse_datafile (char* in)
       key_end = strchr (key_start, ' ');
 
       if (!key_end)
-        errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a SPACE character", lineno, datafile);
+        errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a SPACE character", lineno, pathname);
 
       value_start = key_end + 1;
       *key_end = 0;
@@ -366,7 +316,7 @@ parse_datafile (char* in)
           host_end = strchr (host_start, ':');
 
           if (!host_end)
-            errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a : character after host name", lineno, datafile);
+            errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a : character after host name", lineno, pathname);
 
           graph_start = host_end + 1;
           *host_end = 0;
@@ -376,7 +326,7 @@ parse_datafile (char* in)
               struct graph* g;
 
               if (!graph_end)
-                errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a . character after graph name", lineno, datafile);
+                errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a . character after graph name", lineno, pathname);
 
               graph_key = graph_end + 1;
               *graph_end = 0;
@@ -598,21 +548,59 @@ parse_datafile (char* in)
     }
 }
 
+int
+pmkdir (const char* path, int mode)
+{
+  char* p = strdupa (path);
+  char* t = p + 1;
+
+  while (0 != (t = strchr (t, '/')))
+    {
+      *t = 0;
+
+      if (-1 == mkdir (p, mode) && errno != EEXIST)
+        {
+          fprintf (stderr, "Failed to create directory '%s': %s\n", p, strerror (errno));
+
+          return -1;
+        }
+
+      *t++ = '/';
+    }
+
+  return 0;
+}
+
 void
 process_graph (size_t graph_index)
 {
   struct graph* g = &graphs[graph_index];
   size_t curve;
   struct timeval graph_start, graph_end;
+  char* path;
 
   if (g->nograph)
+      return;
+
+  if (-1 == asprintf (&path, "%s/%s/", htmldir, g->domain))
+    err (EXIT_FAILURE, "asprintf failed");
+
+  if (-1 == pmkdir (path, 0775))
     {
-      free (g->curves);
+      free (path);
 
       return;
     }
 
+  free(path);
+
   gettimeofday (&graph_start, 0);
+
+  if (first_domain)
+    {
+      domain_start = graph_start;
+      first_domain = 0;
+    }
 
   for (curve = 0; curve < g->curve_count; )
     {
@@ -673,6 +661,14 @@ process_graph (size_t graph_index)
       if (-1 == asprintf (&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, eff_g->domain, eff_g->host, eff_g->name, eff_c->name, suffix))
         errx (EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror (errno));
 
+      /* Data loaded by caller */
+      if (c->data.data)
+        {
+          ++curve;
+
+          continue;
+        }
+
       if (0 == rrd_parse (&c->data, c->path) && !c->cdef)
         {
           assert (c->data.data);
@@ -726,190 +722,13 @@ skip_data_source:
 
       for (curve = 0; curve < g->curve_count; ++curve)
         {
-          rrd_free (&g->curves[curve].data);
+          if (g->curves[curve].data.file_size)
+            rrd_free (&g->curves[curve].data);
+
           free (g->curves[curve].work.script.tokens);
           free (g->curves[curve].path);
         }
     }
-
-  free (g->curves);
-}
-
-struct graph_thread_arg
-{
-  size_t graph_index;
-};
-
-void*
-graph_thread (void* varg)
-{
-  struct graph_thread_arg* arg = varg;
-
-  process_graph (arg->graph_index);
-
-  free (arg);
-
-  sem_post (&thread_semaphore);
-
-  return 0;
-}
-
-int
-main (int argc, char** argv)
-{
-  FILE* f;
-  size_t data_size;
-  char* data;
-  char* in;
-  char* line_end;
-  size_t graph_index;
-
-  cpu_count = sysconf (_SC_NPROCESSORS_ONLN);
-
-  for (;;)
-    {
-      int optindex = 0;
-      int c;
-
-      c = getopt_long (argc, argv, "dn", long_options, &optindex);
-
-      if (c == -1)
-        break;
-
-      switch (c)
-        {
-        case 'd':
-
-          datafile = optarg;
-
-          break;
-
-        case 'h':
-
-          help (argv[0]);
-
-          return EXIT_SUCCESS;
-
-        case 'v':
-
-          printf ("%s-graph %s\n", PACKAGE_NAME, PACKAGE_VERSION);
-          printf ("Copyright © 2009 Morten Hustveit\n"
-                 "This is free software.  You may redistribute copies of it under the terms of\n"
-                 "the GNU General Public License <http://www.gnu.org/licenses/gpl.html>.\n"
-                 "There is NO WARRANTY, to the extent permitted by law.\n"
-                 "\n"
-                 "Authors:\n"
-                 "  Morten Hustveit\n");
-
-          return EXIT_SUCCESS;
-
-        case '?':
-
-          fprintf (stderr, "Try `%s --help' for more information.\n", argv[0]);
-
-          return EXIT_FAILURE;
-        }
-    }
-
-  if (optind != argc)
-    {
-      printf ("Usage: %s [OPTION]...\n", argv[0]);
-      fprintf (stderr, "Try `%s --help' for more information.\n", argv[0]);
-
-      return EXIT_FAILURE;
-    }
-
-  if (cpu_count < 1)
-    cpu_count = 1;
-
-  sem_init (&thread_semaphore, 0, cpu_count);
-
-  stats = fopen ("/var/lib/munin/munin-graph.stats", "w");
-
-  if (!stats && debug)
-    fprintf (stderr, "Failed to open /var/lib/munin/munin-graph.stats for writing: %s\n", strerror (errno));
-
-  struct timeval total_start, total_end;
-
-  gettimeofday (&total_start, 0);
-
-  font_init ();
-
-  if (!(f = fopen (datafile, "r")))
-    errx (EXIT_FAILURE, "Failed to open '%s' for reading: %s", datafile, strerror (errno));
-
-  if (-1 == (fseek (f, 0, SEEK_END)))
-    errx (EXIT_FAILURE, "Failed to seek to end of '%s': %s", datafile, strerror (errno));
-
-  data_size = ftell (f);
-
-  if (-1 == (fseek (f, 0, SEEK_SET)))
-    errx (EXIT_FAILURE, "Failed to seek to start of '%s': %s", datafile, strerror (errno));
-
-  data = malloc (data_size + 1);
-
-  if (data_size != fread (data, 1, data_size, f))
-    errx (EXIT_FAILURE, "Error reading %zu bytes from '%s': %s", (size_t) data_size, datafile, strerror (errno));
-
-  fclose (f);
-
-  data[data_size] = 0;
-
-  in = data;
-  line_end = strchr (in, '\n');
-
-  if (!line_end)
-    errx (EXIT_FAILURE, "No newlines in '%s'", datafile);
-
-  unsigned int ver_major, ver_minor, ver_patch;
-
-  if (3 != sscanf (in, "version %u.%u.%u\n", &ver_major, &ver_minor, &ver_patch))
-    errx (EXIT_FAILURE, "Unsupported version signature at start of '%s'", datafile);
-
-  if (ver_major != 1 || ver_minor != 2)
-    errx (EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2", ver_major, ver_minor);
-
-  in = line_end + 1;
-
-  parse_datafile (in);
-
-  qsort (graphs, graph_count, sizeof (struct graph), graph_cmp);
-
-  gettimeofday (&domain_start, 0);
-
-  for (graph_index = 0; graph_index < graph_count; ++graph_index)
-    {
-      struct graph_thread_arg* arg;
-      pthread_t thread;
-
-      arg = malloc (sizeof (*arg));
-      arg->graph_index = graph_index;
-
-      sem_wait (&thread_semaphore);
-      pthread_create (&thread, 0, graph_thread, arg);
-      pthread_detach (thread);
-    }
-
-  while (cpu_count)
-    {
-      sem_wait (&thread_semaphore);
-      --cpu_count;
-    }
-
-  if (stats)
-    {
-      gettimeofday (&total_end, 0);
-
-      fprintf (stats, "GT|total|%.3f\n",
-              total_end.tv_sec - total_start.tv_sec + (total_end.tv_usec - total_start.tv_usec) * 1.0e-6);
-
-      fclose (stats);
-    }
-
-  free (graphs);
-  free (data);
-
-  return EXIT_SUCCESS;
 }
 
 void
@@ -1001,7 +820,7 @@ plot_area (struct canvas* canvas,
       double value = rrd_iterator_peek (iterator);
       rrd_iterator_advance (iterator);
 
-      if (isnan (value))
+      if (isnan (value) || value <= 0)
         continue;
 
       y0 = height - (maxs[x] - global_min) * (height - 1) / (global_max - global_min) - 1;
@@ -1131,29 +950,6 @@ print_numbers (struct canvas* canvas, size_t x, size_t y, double neg, double pos
   strcat (buf, "/");
   format_number (strchr (buf, 0), pos);
   font_draw (canvas, x, y, buf, -1);
-}
-
-int
-pmkdir (const char* path, int mode)
-{
-  char* p = strdupa (path);
-  char* t = p + 1;
-
-  while (0 != (t = strchr (t, '/')))
-    {
-      *t = 0;
-
-      if (-1 == mkdir (p, mode) && errno != EEXIST)
-        {
-          fprintf (stderr, "Failed to create directory '%s': %s\n", p, strerror (errno));
-
-          return -1;
-        }
-
-      *t++ = '/';
-    }
-
-  return 0;
 }
 
 int
@@ -1425,6 +1221,11 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
 
           if (!isnan (avg_value))
             {
+              /*
+              if (area && avg_value < 0.0)
+                avg_value = 0.0;
+                */
+
               if (area)
                 {
                   maxs[x] += avg_value;
@@ -1800,8 +1601,7 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
 
   draw_line (&canvas, graph_x, y + graph_y, graph_x + graph_width - 1, y + graph_y, 0);
 
-  if (-1 != pmkdir (png_path, 0775))
-    write_png (png_path, canvas.width, canvas.height, canvas.data);
+  write_png (png_path, canvas.width, canvas.height, canvas.data);
 
   free (png_path);
   free (canvas.data);
