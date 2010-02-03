@@ -100,6 +100,7 @@ graph_thread (void* varg)
 int
 main (int argc, char** argv)
 {
+  unsigned int ver_major, ver_minor, ver_patch;
   FILE* f;
   size_t data_size;
   char* data;
@@ -204,13 +205,16 @@ main (int argc, char** argv)
   if (!line_end)
     errx (EXIT_FAILURE, "No newlines in '%s'", datafile);
 
-  unsigned int ver_major, ver_minor, ver_patch;
-
   if (3 != sscanf (in, "version %u.%u.%u\n", &ver_major, &ver_minor, &ver_patch))
     errx (EXIT_FAILURE, "Unsupported version signature at start of '%s'", datafile);
 
-  if (ver_major != 1 || ver_minor != 2)
-    errx (EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2", ver_major, ver_minor);
+  if (ver_major == 1 && ver_minor == 2)
+    cur_version = ver_1_2;
+  else if (ver_major == 1 && ver_minor == 3)
+    cur_version = ver_1_3;
+
+  if (cur_version == ver_unknown)
+    errx (EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2 to 1.3", ver_major, ver_minor);
 
   in = line_end + 1;
 

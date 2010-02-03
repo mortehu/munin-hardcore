@@ -4,6 +4,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+enum version
+{
+  ver_unknown,
+  ver_1_2,
+  ver_1_3
+};
+
+extern enum version cur_version;
+
 extern int debug;
 extern int nolazy;
 

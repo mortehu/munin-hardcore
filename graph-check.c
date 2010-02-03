@@ -63,8 +63,8 @@ main (int argc, char **argv)
 
           memset (c, 0, sizeof (*c));
 
-          if (-1 == asprintf ((char **) &c->name, "data%02d", i)
-              || -1 == asprintf ((char **) &c->label, "Data source #%02d", i))
+          if (-1 == asprintf ((char **) &c->name, "data%02zu", i)
+              || -1 == asprintf ((char **) &c->label, "Data source #%02zu", i))
             err (EX_OSERR, "asprintf failed");
 
           switch (rand() % 3)

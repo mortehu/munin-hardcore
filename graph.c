@@ -31,6 +31,7 @@
 
 #include "draw.h"
 #include "font.h"
+#include "graph.h"
 #include "munin.h"
 #include "rrd.h"
 
@@ -63,6 +64,8 @@ const struct time_args time_args[] =
     { "Week %V", 345600, 86400 * 7, 86400 },
     { "%b", 0, INTERVAL_MONTH, 0 },
 };
+
+enum version cur_version = ver_unknown;
 
 int debug = 0;
 int nolazy = 0;
@@ -280,6 +283,12 @@ parse_datafile (char* in, const char *pathname)
   char* graph_key;
   char* tmp;
 
+  int host_terminator;
+  int graph_terminator;
+
+  host_terminator = (cur_version < ver_1_3) ? ':' : ';';
+  graph_terminator = (cur_version < ver_1_3) ? '.' : ';';
+
   while (*in)
     {
       key_start = in;
@@ -313,20 +322,19 @@ parse_datafile (char* in, const char *pathname)
           host_start = domain_end + 1;
           *domain_end = 0;
 
-          host_end = strchr (host_start, ':');
-
-          if (!host_end)
-            errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a : character after host name", lineno, pathname);
+          if (0 == (host_end = strchr (host_start, host_terminator)))
+            errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a %c character after host name",
+                  lineno, pathname, host_terminator);
 
           graph_start = host_end + 1;
           *host_end = 0;
 
-          if (0 != (graph_end = strchr (graph_start, '.')))
+          if (0 != (graph_end = strchr (graph_start, graph_terminator)))
             {
               struct graph* g;
 
               if (!graph_end)
-                errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a . character after graph name", lineno, pathname);
+                errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a %c character after graph name", lineno, pathname, graph_terminator);
 
               graph_key = graph_end + 1;
               *graph_end = 0;
@@ -334,7 +342,7 @@ parse_datafile (char* in, const char *pathname)
               graph = find_graph (key_start, host_start, graph_start, 1);
               g = &graphs[graph];
 
-              if (0 != (tmp = strchr (graph_key, '.')))
+              if (0 != (tmp = strchr (graph_key, graph_terminator)))
                 {
                   char* curve_start;
                   struct curve* c;
@@ -551,8 +559,12 @@ parse_datafile (char* in, const char *pathname)
 int
 pmkdir (const char* path, int mode)
 {
-  char* p = strdupa (path);
-  char* t = p + 1;
+  char* p;
+  char* t;
+
+  p = alloca(strlen(path) + 1);
+  strcpy(p, path);
+  t = p + 1;
 
   while (0 != (t = strchr (t, '/')))
     {
@@ -578,6 +590,10 @@ process_graph (size_t graph_index)
   size_t curve;
   struct timeval graph_start, graph_end;
   char* path;
+
+  int curve_terminator;
+
+  curve_terminator = (cur_version < ver_1_3) ? '.' : ';';
 
   if (g->nograph)
       return;
@@ -618,18 +634,20 @@ process_graph (size_t graph_index)
 
           if (ch && ch[strlen (c->name)] == '=')
             {
-              curve_name = strdupa (ch + strlen (c->name) + 1);
+              ch += strlen(c->name) + 1;
+              curve_name = alloca(strlen(ch) + 1);
+              strcpy(curve_name, ch);
 
               if (strchr (curve_name, ' '))
                 *strchr (curve_name, ' ' ) = 0;
 
-              if (strchr (curve_name, '.'))
+              if (strchr (curve_name, curve_terminator))
                 {
                   char* graph_name;
                   ssize_t eff_graph_index;
 
                   graph_name = curve_name;
-                  curve_name = strchr (graph_name, '.');
+                  curve_name = strchr (graph_name, curve_terminator);
                   *curve_name++ = 0;
 
                   eff_graph_index = find_graph (g->domain, g->host, graph_name, 0);
@@ -1105,8 +1123,10 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
 
   char* png_path;
 
-  if (-1 == asprintf (&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix))
-    err (EXIT_FAILURE, "asprintf failed");
+  if (cur_version < ver_1_3)
+    asprintf (&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
+  else
+    asprintf (&png_path, "%s/%s/%s/%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
 
   struct stat png_stat;
 
@@ -1647,15 +1667,20 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
 
         case cdef_div:
 
-          --sp;
-          stack[sp - 1] /= stack[sp];
+          if(!isfinite(stack[sp - 1]) || !isfinite(stack[sp]))
+            stack[sp - 1] = NAN;
+          else
+            stack[sp - 1] /= stack[sp];
 
           break;
 
         case cdef_mod:
 
           --sp;
-          stack[sp - 1] = fmod (stack[sp - 1], stack[sp]);
+          if(!isfinite(stack[sp - 1]) || !isfinite(stack[sp]))
+            stack[sp - 1] = NAN;
+          else
+            stack[sp - 1] = fmod(stack[sp - 1], stack[sp]);
 
           break;
 

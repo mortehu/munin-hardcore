@@ -15,7 +15,6 @@
  */
 
 #include <arpa/inet.h>
-#include <alloca.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <png.h>
@@ -53,7 +52,7 @@ write_png (const char *file_name, size_t width, size_t height, unsigned char* da
       return - 1;
     }
 
-  row_pointers = alloca (height * sizeof (png_bytep));
+  row_pointers = malloc (height * sizeof (png_bytep));
 
   for (i = 0; i < height; ++i)
     row_pointers[i] = data + i * width * 3;
@@ -74,6 +73,8 @@ write_png (const char *file_name, size_t width, size_t height, unsigned char* da
   png_destroy_write_struct (&png_ptr, &info_ptr);
 
   fclose (f);
+
+  free (row_pointers);
 
   return 0;
 }
