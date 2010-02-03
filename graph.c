@@ -25,6 +25,7 @@
 #include <time.h>
 
 #include <err.h>
+#include <sysexits.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -1121,12 +1122,16 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
   time_t last_update = 0;
   size_t i, curve, ds = 0;
 
+  const char *png_path_format;
   char* png_path;
 
   if (cur_version < ver_1_3)
-    asprintf (&png_path, "%s/%s/%s-%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
+    png_path_format = "%s/%s/%s-%s-%s.png";
   else
-    asprintf (&png_path, "%s/%s/%s/%s-%s.png", htmldir, g->domain, g->host, g->name, suffix);
+    png_path_format = "%s/%s/%s/%s-%s.png";
+
+  if (-1 == asprintf (&png_path, png_path_format, htmldir, g->domain, g->host, g->name, suffix))
+    err (EX_OSERR, "asprintf failed");
 
   struct stat png_stat;
 
