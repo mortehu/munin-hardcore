@@ -459,7 +459,56 @@ parse_datafile (char* in, const char *pathname)
 
                     case key_graph_args:
 
-                      g->args = value_start;
+                        {
+                          char *tmp = strdup (value_start);
+                          char *key, *value;
+
+                          for (key = strtok (tmp, " "); key; key = strtok (0, " "))
+                            {
+                              if (!strcmp (key, "--base")
+                                  || !strcmp (key, "-l")
+                                  || !strcmp (key, "--lower-limit")
+                                  || !strcmp (key, "--upper-limit")
+                                  || !strcmp (key, "--vertical-label"))
+                                {
+                                  value = strtok (0, " ");
+
+                                  if (!value)
+                                    {
+                                      if (debug)
+                                        fprintf (stderr,
+                                                 "Missing argument for graph "
+                                                 "arg '%s' at line %zu\n",
+                                                 key, lineno);
+
+                                      continue;
+                                    }
+                                }
+                              else
+                                value = 0;
+
+                              if (!strcmp (key, "--base"))
+                                g->base = atoi (value);
+                              else if (!strcmp (key, "-l"))
+                                g->precision = atoi (value);
+                              else if (!strcmp (key, "--lower-limit"))
+                                {
+                                  g->has_lower_limit = 1;
+                                  g->lower_limit = strtod (value, 0);
+                                }
+                              else if (!strcmp (key, "--upper-limit"))
+                                {
+                                  g->has_upper_limit = 1;
+                                  g->upper_limit = strtod (value, 0);
+                                }
+                              else if (!strcmp (key, "--logarithmic"))
+                                g->logarithmic = 1;
+
+                              /* XXX: Handle vertical-label without leaking memory */
+                            }
+
+                          free (tmp);
+                        }
 
                       break;
 
@@ -688,10 +737,8 @@ process_graph (size_t graph_index)
           continue;
         }
 
-      if (0 == rrd_parse (&c->data, c->path) && !c->cdef)
+      if (0 == rrd_parse (&c->data, c->path) || c->cdef)
         {
-          assert (c->data.data);
-
           ++curve;
 
           continue;
@@ -700,7 +747,7 @@ process_graph (size_t graph_index)
 skip_data_source:
 
       if (debug)
-        fprintf (stderr, "Skipping data source %s.%s.%s.%s\n", g->domain, g->host, g->name, c->name);
+        fprintf (stderr, "Skipping data source %s.%s.%s.%s (%s)\n", g->domain, g->host, g->name, c->name, c->path);
 
       free (c->path);
 
@@ -783,7 +830,7 @@ plot_gauge (struct canvas* canvas,
       if (prev_y != -1)
         draw_line (canvas, graph_x + x - 1, graph_y + prev_y, graph_x + x, graph_y + y, color);
       else
-        canvas->data[((graph_y + y) * width + (graph_x + x)) * 3] = color;
+        draw_pixel (canvas, graph_y + y, graph_x + x, color);
 
       prev_y = y;
     }
@@ -1345,6 +1392,9 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
             }
         }
     }
+
+  if (g->has_upper_limit && global_max < g->upper_limit)
+    global_max = g->upper_limit;
 
   struct canvas canvas;
 

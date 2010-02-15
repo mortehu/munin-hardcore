@@ -82,7 +82,6 @@ struct graph
   const char* name;
 
   const char* title;
-  const char* args;
   const char* category;
   const char* info;
   const char* order;
@@ -91,6 +90,14 @@ struct graph
   const char* total;
   const char* vlabel;
   int nograph;
+
+  int base;
+  int precision;
+  int has_lower_limit;
+  double lower_limit;
+  int has_upper_limit;
+  double upper_limit;
+  int logarithmic;
 
   size_t width, height;
 
