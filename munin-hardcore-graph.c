@@ -251,28 +251,33 @@ main (int argc, char** argv)
 
   qsort (graphs, graph_count, sizeof (struct graph), graph_cmp);
 
-  children = calloc (sizeof (*children), cpu_count);
-
-  if (!children)
-    err (EX_OSERR, "malloc failed");
-
-  for (i = 0; i < cpu_count; ++i)
+  if (debug)
+    process_graphs(0, 1);
+  else
     {
-      children[i] = fork ();
+      children = calloc (sizeof (*children), cpu_count);
 
-      if (children[i] == -1)
-        err (EX_OSERR, "fork failed");
+      if (!children)
+        err (EX_OSERR, "malloc failed");
 
-      if (!children[i])
+      for (i = 0; i < cpu_count; ++i)
         {
-          process_graphs(i, cpu_count);
+          children[i] = fork ();
 
-          exit (EXIT_SUCCESS);
+          if (children[i] == -1)
+            err (EX_OSERR, "fork failed");
+
+          if (!children[i])
+            {
+              process_graphs(i, cpu_count);
+
+              exit (EXIT_SUCCESS);
+            }
         }
-    }
 
-  for (i = 0; i < cpu_count; ++i)
-    waitpid (children[i], 0, 0);
+      for (i = 0; i < cpu_count; ++i)
+        waitpid (children[i], 0, 0);
+    }
 
   if (stats)
     {
