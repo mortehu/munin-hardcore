@@ -1102,7 +1102,16 @@ draw_grid (struct graph* g, struct canvas* canvas,
 
   if (g->noscale)
     {
-      format = (fabs (global_max) - fabs (global_min) < 1.0) ? "%.2f" : "%.f";
+      double range = fabs (global_max) - fabs (global_min);
+
+      if (range < 0.1)
+        format = "%.3f";
+      else if (range < 1.0)
+        format = "%.2f";
+      else if (range < 10.0)
+        format = "%.1f";
+      else
+        format = "%.f";
 
       suffix = "";
       scale = 1.0;
