@@ -1295,7 +1295,8 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
             {
               if (area)
                 {
-                  maxs[x] += avg_value;
+                  if (avg_value > 0)
+                    maxs[x] += avg_value;
 
                   if (maxs[x] > global_max)
                     global_max = maxs[x];
