@@ -927,7 +927,7 @@ calc_step_size (double range, size_t graph_height)
 }
 
 void
-number_format_args (double number, const char** format, const char** suffix, double* scale)
+number_format_args (double number, const char** format, const char** suffix, double* scale, double step_size)
 {
   static const char* fmt[] = { "%.2f%s", "%.1f%s", "%.0f%s" };
   /* XXX: Not reentrant because of this buffer: */
@@ -959,8 +959,6 @@ number_format_args (double number, const char** format, const char** suffix, dou
         }
       else
         *suffix = suffixes[mag];
-
-      *format = fmt[rad];
       *scale = pow (1000, mag + 1);
     }
   else
@@ -986,11 +984,25 @@ number_format_args (double number, const char** format, const char** suffix, dou
             }
           else
             *suffix = suffixes[mag - 1];
-
-          *format = fmt[rad];
           *scale = pow (1000.0, -mag);
         }
     }
+
+  if (step_size)
+    {
+      step_size *= *scale;
+
+      if (step_size < 0.01)
+        *format = "%.3f%s";
+      else if (step_size < 0.1)
+        *format = "%.2f%s";
+      else if (step_size < 1.0)
+        *format = "%.1f%s";
+      else
+        *format = "%.f%s";
+    }
+  else
+    *format = fmt[rad];
 }
 
 void
@@ -1004,7 +1016,7 @@ format_number (char* target, double number)
     strcpy (target, "nan");
   else
     {
-      number_format_args (number, &format, &suffix, &scale);
+      number_format_args (number, &format, &suffix, &scale, 0);
 
       sprintf (target, format, number * scale, suffix);
     }
@@ -1115,7 +1127,7 @@ draw_grid (struct graph* g, struct canvas* canvas,
       scale = 1.0;
     }
   else
-    number_format_args ((fabs (global_max) > fabs (global_min)) ? fabs (global_max) : fabs (global_min), &format, &suffix, &scale);
+    number_format_args ((fabs (global_max) > fabs (global_min)) ? fabs (global_max) : fabs (global_min), &format, &suffix, &scale, step_size);
 
   for (j = global_min / step_size; j <= global_max / step_size; ++j)
     {
