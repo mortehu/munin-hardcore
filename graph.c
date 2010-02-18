@@ -1104,11 +1104,11 @@ draw_grid (struct graph* g, struct canvas* canvas,
     {
       double range = fabs (global_max) - fabs (global_min);
 
-      if (range < 0.1)
+      if (step_size < 0.01)
         format = "%.3f";
-      else if (range < 1.0)
+      else if (step_size < 0.1)
         format = "%.2f";
-      else if (range < 10.0)
+      else if (step_size < 1.0)
         format = "%.1f";
       else
         format = "%.f";
