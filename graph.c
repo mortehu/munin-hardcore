@@ -1006,7 +1006,7 @@ number_format_args (double number, const char** format, const char** suffix, dou
 }
 
 void
-format_number (char* target, double number)
+format_number (char* target, double number, double scale_reference)
 {
   const char* format;
   const char* suffix;
@@ -1016,18 +1016,18 @@ format_number (char* target, double number)
     strcpy (target, "nan");
   else
     {
-      number_format_args (number, &format, &suffix, &scale, 0);
+      number_format_args (scale_reference, &format, &suffix, &scale, 0);
 
       sprintf (target, format, number * scale, suffix);
     }
 }
 
 void
-print_number (struct canvas* canvas, size_t x, size_t y, double val)
+print_number (struct canvas* canvas, size_t x, size_t y, double val, double scale_reference)
 {
   char buf[64];
 
-  format_number (buf, val);
+  format_number (buf, val, scale_reference);
   font_draw (canvas, x, y, buf, -1);
 }
 
@@ -1036,9 +1036,9 @@ print_numbers (struct canvas* canvas, size_t x, size_t y, double neg, double pos
 {
   char buf[64];
 
-  format_number (buf, neg);
+  format_number (buf, neg, neg);
   strcat (buf, "/");
-  format_number (strchr (buf, 0), pos);
+  format_number (strchr (buf, 0), pos, pos);
   font_draw (canvas, x, y, buf, -1);
 }
 
@@ -1675,15 +1675,37 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
         }
       else
         {
+          double smallest, biggest;
+
           if (c->critical && c->work.cur > c->critical)
             draw_rect (&canvas, x, y - 4, column_width + 2, LINE_HEIGHT, 0xff7777);
           else if (c->warning && c->work.cur > c->warning)
             draw_rect (&canvas, x, y - 4, column_width + 2, LINE_HEIGHT, 0xffff77);
 
-          print_number (&canvas, x + column_width * 1, y + 9, c->work.cur);
-          print_number (&canvas, x + column_width * 2, y + 9, c->work.min);
-          print_number (&canvas, x + column_width * 3, y + 9, c->work.avg);
-          print_number (&canvas, x + column_width * 4, y + 9, c->work.max);
+          smallest = biggest = c->work.cur;
+
+          if (c->work.min < smallest) smallest = c->work.min;
+          if (c->work.avg < smallest) smallest = c->work.avg;
+          if (c->work.max < smallest) smallest = c->work.max;
+
+          if (c->work.min > biggest) biggest = c->work.min;
+          if (c->work.avg > biggest) biggest = c->work.avg;
+          if (c->work.max > biggest) biggest = c->work.max;
+
+          if (biggest / smallest < 100.0)
+            {
+              print_number (&canvas, x + column_width * 1, y + 9, c->work.cur, smallest);
+              print_number (&canvas, x + column_width * 2, y + 9, c->work.min, smallest);
+              print_number (&canvas, x + column_width * 3, y + 9, c->work.avg, smallest);
+              print_number (&canvas, x + column_width * 4, y + 9, c->work.max, smallest);
+            }
+          else
+            {
+              print_number (&canvas, x + column_width * 1, y + 9, c->work.cur, c->work.cur);
+              print_number (&canvas, x + column_width * 2, y + 9, c->work.min, c->work.min);
+              print_number (&canvas, x + column_width * 3, y + 9, c->work.avg, c->work.avg);
+              print_number (&canvas, x + column_width * 4, y + 9, c->work.max, c->work.max);
+            }
         }
 
       totals[0][0] += c->work.cur;
@@ -1705,10 +1727,10 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
         }
       else
         {
-          print_number (&canvas, x + column_width * 1, y + 9, totals[0][0]);
-          print_number (&canvas, x + column_width * 2, y + 9, totals[1][0]);
-          print_number (&canvas, x + column_width * 3, y + 9, totals[2][0]);
-          print_number (&canvas, x + column_width * 4, y + 9, totals[3][0]);
+          print_number (&canvas, x + column_width * 1, y + 9, totals[0][0], totals[0][0]);
+          print_number (&canvas, x + column_width * 2, y + 9, totals[1][0], totals[1][0]);
+          print_number (&canvas, x + column_width * 3, y + 9, totals[2][0], totals[2][0]);
+          print_number (&canvas, x + column_width * 4, y + 9, totals[3][0], totals[3][0]);
         }
     }
 
