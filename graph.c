@@ -1102,8 +1102,6 @@ draw_grid (struct graph* g, struct canvas* canvas,
 
   if (g->noscale)
     {
-      double range = fabs (global_max) - fabs (global_min);
-
       if (step_size < 0.01)
         format = "%.3f";
       else if (step_size < 0.1)
