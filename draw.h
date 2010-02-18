@@ -17,6 +17,9 @@ void
 draw_line (struct canvas* canvas, size_t x0, size_t y0, size_t x1, size_t y1, uint32_t color);
 
 void
+draw_line2 (struct canvas* canvas, size_t x0, size_t y0, size_t x1, size_t y1, uint32_t color);
+
+void
 draw_rect (struct canvas* canvas, size_t x, size_t y, size_t width, size_t height, uint32_t color);
 
 void

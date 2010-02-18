@@ -37,6 +37,8 @@
 #include "rrd.h"
 
 #define PLOT_NEGATIVE 0x0001
+#define PLOT_WIDTH2   0x0002
+#define PLOT_WIDTH3   0x0004
 
 #define MAX_DIM 2048
 #define LINE_HEIGHT 14
@@ -828,9 +830,19 @@ plot_gauge (struct canvas* canvas,
         - 1;
 
       if (prev_y != -1)
-        draw_line (canvas, graph_x + x - 1, graph_y + prev_y, graph_x + x, graph_y + y, color);
+        {
+          if (flags & PLOT_WIDTH3)
+            draw_line2 (canvas, graph_x + x - 1, graph_y + prev_y, graph_x + x, graph_y + y, color);
+          else
+            draw_line (canvas, graph_x + x - 1, graph_y + prev_y, graph_x + x, graph_y + y, color);
+        }
       else
-        draw_pixel (canvas, graph_y + y, graph_x + x, color);
+        {
+          draw_pixel (canvas, graph_y + y, graph_x + x, color);
+
+          if (flags & PLOT_WIDTH3)
+            draw_pixel (canvas, graph_y + y, graph_x + x, color);
+        }
 
       prev_y = y;
     }
@@ -1348,7 +1360,10 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
     }
 
   if (visible_graph_count == 1
-     && (!g->curves[0].draw || !strcasecmp (g->curves[0].draw, "line2")))
+     && (!g->curves[0].draw
+         || !strcasecmp (g->curves[0].draw, "line1")
+         || !strcasecmp (g->curves[0].draw, "line2")
+         || !strcasecmp (g->curves[0].draw, "line3")))
     draw_min_max = 1;
 
   for (curve = 0; curve < g->curve_count; ++curve)
@@ -1504,8 +1519,18 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
 
               iterator_average = c->work.eff_iterator[average];
 
-              if (!c->draw || !strcasecmp (c->draw, "line2"))
+              if (!c->draw
+                  || !strcasecmp (c->draw, "line1")
+                  || !strcasecmp (c->draw, "line2")
+                  || !strcasecmp (c->draw, "line3"))
                 {
+                  int flags = 0;
+
+                  if (!c->draw || !strcasecmp (c->draw, "line2"))
+                    flags |= PLOT_WIDTH2;
+                  else if (!strcasecmp (c->draw, "line3"))
+                    flags |= PLOT_WIDTH3;
+
                   if (draw_min_max)
                     {
                       if (pass == 0)
@@ -1513,10 +1538,10 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
                           iterator_min = c->work.eff_iterator[min];
                           iterator_max = c->work.eff_iterator[max];
 
-                          plot_min_max (&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color, 0);
+                          plot_min_max (&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color, flags);
                         }
                       else
-                        plot_gauge (&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, (color >> 1) & 0x7f7f7f, 0);
+                        plot_gauge (&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, (color >> 1) & 0x7f7f7f, flags);
 
                       if (c->work.negative)
                         {
@@ -1525,13 +1550,13 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
                               iterator_min = c->work.negative->work.eff_iterator[min];
                               iterator_max = c->work.negative->work.eff_iterator[max];
 
-                              plot_min_max (&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color, PLOT_NEGATIVE);
+                              plot_min_max (&canvas, &iterator_min, &iterator_max, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color, PLOT_NEGATIVE | flags);
                             }
                           else
                             {
                               iterator_average = c->work.negative->work.eff_iterator[average];
 
-                              plot_gauge (&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, (color >> 1) & 0x7f7f7f, PLOT_NEGATIVE);
+                              plot_gauge (&canvas, &iterator_average, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, (color >> 1) & 0x7f7f7f, PLOT_NEGATIVE | flags);
                             }
                         }
                     }
