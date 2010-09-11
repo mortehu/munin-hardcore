@@ -89,20 +89,8 @@ const char* logdir = "/var/log/munin";
 
 static __thread const char* graph_order;
 
-void
+static void
 do_graph (struct graph* g, size_t interval, const char* suffix);
-
-double
-cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs);
-
-void
-cdef_create_iterator (struct rrd_iterator* result, struct graph* g, struct curve* c, enum iterator_name name, size_t max_count);
-
-int
-cdef_compile (struct cdef_script* target, struct graph* g, const char* string);
-
-const struct curve*
-find_curve (const struct graph* g, const char* name);
 
 ssize_t
 find_graph (const char* domain, const char* host, const char* name, int create)
@@ -1193,7 +1181,7 @@ draw_grid (struct graph* g, struct canvas* canvas,
   font_draw (canvas, canvas->width - 5, canvas->height - 3, buf, -1);
 }
 
-void
+static void
 do_graph (struct graph* g, size_t interval, const char* suffix)
 {
   size_t x, y, width;

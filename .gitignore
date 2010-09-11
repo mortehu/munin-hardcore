@@ -15,6 +15,7 @@ configure
 core
 core.*
 graph-check
+munin-hardcore-correlate
 munin-hardcore-graph
 munin-hardcore-node
 tests

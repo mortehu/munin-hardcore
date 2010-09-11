@@ -1,7 +1,9 @@
 #ifndef RRD_H_
 #define RRD_H_ 1
 
+#include <stdlib.h>
 #include <stdint.h>
+#include <time.h>
 
 union unival
 {

@@ -227,6 +227,8 @@ rrd_iterator_create (struct rrd_iterator* result, const struct rrd* data,
   size_t rra;
   size_t offset = 0;
 
+  memset (result, 0, sizeof (*result));
+
   interval /= data->header.pdp_step;
 
   for (rra = 0; rra < data->header.rra_count; ++rra)
@@ -234,7 +236,6 @@ rrd_iterator_create (struct rrd_iterator* result, const struct rrd* data,
       if (data->rra_defs[rra].pdp_count == interval
          && !strcmp (data->rra_defs[rra].cf_name, cf_name))
         {
-          result->ds = 0;
           result->values = data->values;
           result->offset = offset;
           result->count = data->rra_defs[rra].row_count;
@@ -243,8 +244,6 @@ rrd_iterator_create (struct rrd_iterator* result, const struct rrd* data,
 
           if (result->count > max_count)
             result->current_position = result->count - max_count;
-          else
-            result->current_position = 0;
 
           return 0;
         }
