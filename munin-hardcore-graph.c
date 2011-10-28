@@ -57,8 +57,8 @@ help (const char* argv0)
          "Mandatory arguments to long options are mandatory for short"
          " options too\n"
          "\n"
-         "     --data-file=FILE       load graph information from FILE\n"
-         " -d, --debug                print debug messages\n"
+         " -d, --data-file=FILE       load graph information from FILE\n"
+         "     --debug                print debug messages\n"
          " -n, --no-lazy              redraw every single graph\n"
          "     --help     display this help and exit\n"
          "     --version  display version information and exit\n"
@@ -241,9 +241,11 @@ main (int argc, char** argv)
     cur_version = ver_1_2;
   else if (ver_major == 1 && ver_minor == 3)
     cur_version = ver_1_3;
+  else if (ver_major == 1 && ver_minor == 4)
+    cur_version = ver_1_4;
 
   if (cur_version == ver_unknown)
-    errx (EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2 to 1.3", ver_major, ver_minor);
+    errx (EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2 to 1.4", ver_major, ver_minor);
 
   in = line_end + 1;
 

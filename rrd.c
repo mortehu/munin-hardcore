@@ -190,6 +190,9 @@ rrd_parse (struct rrd* result, const char* filename)
   test_end (input, "value list");
 
   if (input != end)
+    input = (unsigned char *) data + (((input - (unsigned char*) data) + 15) & ~15);
+
+  if (input != end)
     {
       fprintf (stderr, "Unexpected file size for '%s': Got %zu, but expected %zu\n",
               filename, (end - (unsigned char*) data), (input - (unsigned char*) data));

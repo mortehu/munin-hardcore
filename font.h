@@ -10,6 +10,7 @@ size_t
 font_width (const char* text);
 
 void
-font_draw (struct canvas* canvas, size_t x, size_t y, const char* text, int direction);
+font_draw (struct canvas* canvas, size_t x, size_t y, const char* text, int direction,
+	   unsigned int blackness);
 
 #endif /* !FONT_H_ */

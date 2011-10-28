@@ -96,6 +96,7 @@ ssize_t
 find_graph (const char* domain, const char* host, const char* name, int create)
 {
   size_t i;
+  char *ch;
 
   for (i = graph_count; i-- > 0; )
     {
@@ -123,7 +124,23 @@ find_graph (const char* domain, const char* host, const char* name, int create)
   graphs[i].domain = domain;
   graphs[i].host = host;
   graphs[i].name = name;
+  graphs[i].name_png_path = strdup (name);
+
+  if (!graphs[i].name_png_path)
+    errx (EXIT_FAILURE, "Memory allocation failed: %s", strerror (errno));
+
+  graphs[i].name_rrd_path = strdup (name);
+
+  if (!graphs[i].name_rrd_path)
+    errx (EXIT_FAILURE, "Memory allocation failed: %s", strerror (errno));
+
   ++graph_count;
+
+  for (ch = strchr (graphs[i].name_png_path, '.'); ch; ch = strchr (graphs[i].name_png_path, '.'))
+    *ch = '/';
+
+  for (ch = strchr (graphs[i].name_rrd_path, '.'); ch; ch = strchr (graphs[i].name_rrd_path, '.'))
+    *ch = '-';
 
   return i;
 }
@@ -269,16 +286,37 @@ parse_datafile (char* in, const char *pathname)
   char* domain_end;
   char* host_start;
   char* host_end;
-  char* graph_start;
-  char* graph_end;
+  char* graph_name;
+  char* curve_name;
   char* graph_key;
-  char* tmp;
 
   int host_terminator;
   int graph_terminator;
 
-  host_terminator = (cur_version < ver_1_3) ? ':' : ';';
-  graph_terminator = (cur_version < ver_1_3) ? '.' : ';';
+  switch (cur_version)
+    {
+    case ver_1_4:
+
+      htmldir = "/var/cache/munin/www";
+
+    case ver_1_2:
+
+      host_terminator = ':';
+      graph_terminator = '.';
+
+      break;
+
+    case ver_1_3:
+
+      host_terminator = ';';
+      graph_terminator = ';';
+
+      break;
+
+    default:
+
+      errx (EXIT_FAILURE, "parse_datafile: Unknown datafile version");
+    }
 
   while (*in)
     {
@@ -317,266 +355,262 @@ parse_datafile (char* in, const char *pathname)
             errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a %c character after host name",
                   lineno, pathname, host_terminator);
 
-          graph_start = host_end + 1;
+          graph_name = host_end + 1;
           *host_end = 0;
 
-          if (0 != (graph_end = strchr (graph_start, graph_terminator)))
-            {
-              struct graph* g;
+          if (0 != (graph_key = strrchr (graph_name, graph_terminator)))
+	    {
+	      struct graph *g;
 
-              if (!graph_end)
-                errx (EXIT_FAILURE, "Parse error at line %zu in '%s'.  Did not find a %c character after graph name", lineno, pathname, graph_terminator);
+	      *graph_key++ = 0;
 
-              graph_key = graph_end + 1;
-              *graph_end = 0;
+	      if (strncmp (graph_key, "graph_", 6)
+		  && 0 != (curve_name = strrchr (graph_name, graph_terminator)))
+		*curve_name++ = 0;
+	      else
+		curve_name = 0;
 
-              graph = find_graph (key_start, host_start, graph_start, 1);
-              g = &graphs[graph];
+	      graph = find_graph (key_start, host_start, graph_name, 1);
+	      g = &graphs[graph];
 
-              if (0 != (tmp = strchr (graph_key, graph_terminator)))
-                {
-                  char* curve_start;
-                  struct curve* c;
+	      if (curve_name)
+		{
+		  struct curve* c;
 
-                  curve_start = graph_key;
-                  graph_key = tmp;
+		  curve = curve_index (g, curve_name);
+		  c = &g->curves[curve];
 
-                  *graph_key++ = 0;
+		  switch (lookup_key (graph_key))
+		    {
+		    case key_label:
 
-                  curve = curve_index (g, curve_start);
-                  c = &g->curves[curve];
+		      c->label = value_start;
 
-                  switch (lookup_key (graph_key))
-                    {
-                    case key_label:
+		      break;
 
-                      c->label = value_start;
+		    case key_draw:
 
-                      break;
+		      c->draw = value_start;
 
-                    case key_draw:
+		      break;
 
-                      c->draw = value_start;
+		    case key_color:
+		    case key_colour:
 
-                      break;
+		      c->has_color = 1;
+		      c->color = strtol (value_start, 0, 16);
 
-                    case key_color:
-                    case key_colour:
+		      break;
 
-                      c->has_color = 1;
-                      c->color = strtol (value_start, 0, 16);
+		    case key_graph:
 
-                      break;
+		      c->nograph = !strcasecmp (value_start, "no");
 
-                    case key_graph:
+		      break;
 
-                      c->nograph = !strcasecmp (value_start, "no");
+		    case key_skipdraw:
 
-                      break;
+		      c->nograph = !!strtol (value_start, 0, 0);
 
-                    case key_skipdraw:
+		      break;
 
-                      c->nograph = !!strtol (value_start, 0, 0);
+		    case key_type:
 
-                      break;
+		      c->type = value_start;
 
-                    case key_type:
+		      break;
 
-                      c->type = value_start;
+		    case key_info:
 
-                      break;
+		      c->info = value_start;
 
-                    case key_info:
+		      break;
 
-                      c->info = value_start;
+		    case key_cdef:
 
-                      break;
+		      c->cdef = value_start;
 
-                    case key_cdef:
+		      break;
 
-                      c->cdef = value_start;
+		    case key_negative:
 
-                      break;
+		      c->negative = value_start;
 
-                    case key_negative:
+		      break;
 
-                      c->negative = value_start;
+		    case key_max:
 
-                      break;
+		      c->max = strtod (value_start, 0);
+		      c->has_max = 1;
 
-                    case key_max:
+		      break;
 
-                      c->max = strtod (value_start, 0);
-                      c->has_max = 1;
+		    case key_min:
 
-                      break;
+		      c->min = strtod (value_start, 0);
+		      c->has_min = 1;
 
-                    case key_min:
+		      break;
 
-                      c->min = strtod (value_start, 0);
-                      c->has_min = 1;
+		    case key_warning:
+		    case key_warn:
 
-                      break;
+		      c->warning = strtod (value_start, 0);
 
-                    case key_warning:
-                    case key_warn:
+		      break;
 
-                      c->warning = strtod (value_start, 0);
+		    case key_critical:
 
-                      break;
+		      c->critical = strtod (value_start, 0);
 
-                    case key_critical:
+		      break;
 
-                      c->critical = strtod (value_start, 0);
+		    default:
 
-                      break;
+		      if (debug)
+			fprintf (stderr, "Skipping unknown data source key '%s' at line %zu\n", graph_key, lineno);
+		    }
+		}
+	      else
+		{
+		  switch (lookup_key (graph_key))
+		    {
+		    case key_graph:
 
-                    default:
+		      g->nograph = !strcasecmp (value_start, "no");
 
-                      if (debug)
-                        fprintf (stderr, "Skipping unknown data source key '%s' at line %zu\n", graph_key, lineno);
-                    }
-                }
-              else
-                {
-                  switch (lookup_key (graph_key))
-                    {
-                    case key_graph:
+		      break;
 
-                      g->nograph = !strcasecmp (value_start, "no");
+		    case key_graph_args:
 
-                      break;
+			{
+			  char *tmp = strdup (value_start);
+			  char *key, *value;
 
-                    case key_graph_args:
+			  for (key = strtok (tmp, " "); key; key = strtok (0, " "))
+			    {
+			      if (!strcmp (key, "--base")
+				  || !strcmp (key, "-l")
+				  || !strcmp (key, "--lower-limit")
+				  || !strcmp (key, "--upper-limit")
+				  || !strcmp (key, "--vertical-label"))
+				{
+				  value = strtok (0, " ");
 
-                        {
-                          char *tmp = strdup (value_start);
-                          char *key, *value;
+				  if (!value)
+				    {
+				      if (debug)
+					fprintf (stderr,
+						 "Missing argument for graph "
+						 "arg '%s' at line %zu\n",
+						 key, lineno);
 
-                          for (key = strtok (tmp, " "); key; key = strtok (0, " "))
-                            {
-                              if (!strcmp (key, "--base")
-                                  || !strcmp (key, "-l")
-                                  || !strcmp (key, "--lower-limit")
-                                  || !strcmp (key, "--upper-limit")
-                                  || !strcmp (key, "--vertical-label"))
-                                {
-                                  value = strtok (0, " ");
+				      continue;
+				    }
+				}
+			      else
+				value = 0;
 
-                                  if (!value)
-                                    {
-                                      if (debug)
-                                        fprintf (stderr,
-                                                 "Missing argument for graph "
-                                                 "arg '%s' at line %zu\n",
-                                                 key, lineno);
+			      if (!strcmp (key, "--base"))
+				g->base = atoi (value);
+			      else if (!strcmp (key, "-l"))
+				g->precision = atoi (value);
+			      else if (!strcmp (key, "--lower-limit"))
+				{
+				  g->has_lower_limit = 1;
+				  g->lower_limit = strtod (value, 0);
+				}
+			      else if (!strcmp (key, "--upper-limit"))
+				{
+				  g->has_upper_limit = 1;
+				  g->upper_limit = strtod (value, 0);
+				}
+			      else if (!strcmp (key, "--logarithmic"))
+				g->logarithmic = 1;
 
-                                      continue;
-                                    }
-                                }
-                              else
-                                value = 0;
+			      /* XXX: Handle vertical-label without leaking memory */
+			    }
 
-                              if (!strcmp (key, "--base"))
-                                g->base = atoi (value);
-                              else if (!strcmp (key, "-l"))
-                                g->precision = atoi (value);
-                              else if (!strcmp (key, "--lower-limit"))
-                                {
-                                  g->has_lower_limit = 1;
-                                  g->lower_limit = strtod (value, 0);
-                                }
-                              else if (!strcmp (key, "--upper-limit"))
-                                {
-                                  g->has_upper_limit = 1;
-                                  g->upper_limit = strtod (value, 0);
-                                }
-                              else if (!strcmp (key, "--logarithmic"))
-                                g->logarithmic = 1;
+			  free (tmp);
+			}
 
-                              /* XXX: Handle vertical-label without leaking memory */
-                            }
+		      break;
 
-                          free (tmp);
-                        }
+		    case key_graph_vlabel:
 
-                      break;
+		      g->vlabel = value_start;
 
-                    case key_graph_vlabel:
+		      break;
 
-                      g->vlabel = value_start;
+		    case key_graph_title:
 
-                      break;
+		      g->title = value_start;
 
-                    case key_graph_title:
+		      break;
 
-                      g->title = value_start;
+		    case key_graph_order:
 
-                      break;
+		      g->order = value_start;
 
-                    case key_graph_order:
+		      break;
 
-                      g->order = value_start;
+		    case key_graph_category:
 
-                      break;
+		      g->category = value_start;
 
-                    case key_graph_category:
+		      break;
 
-                      g->category = value_start;
+		    case key_graph_info:
 
-                      break;
+		      g->info = value_start;
 
-                    case key_graph_info:
+		      break;
 
-                      g->info = value_start;
+		    case key_graph_scale:
 
-                      break;
+		      g->noscale = !strcasecmp (value_start, "no");
 
-                    case key_graph_scale:
+		      break;
 
-                      g->noscale = !strcasecmp (value_start, "no");
+		    case key_graph_height:
 
-                      break;
+		      g->height = strtol (value_start, 0, 0);
 
-                    case key_graph_height:
+		      break;
 
-                      g->height = strtol (value_start, 0, 0);
+		    case key_graph_width:
 
-                      break;
+		      g->width = strtol (value_start, 0, 0);
 
-                    case key_graph_width:
+		      break;
 
-                      g->width = strtol (value_start, 0, 0);
+		    case key_graph_period:
 
-                      break;
+		      g->period = value_start;
 
-                    case key_graph_period:
+		      break;
 
-                      g->period = value_start;
+		    case key_graph_total:
 
-                      break;
+		      g->total = value_start;
 
-                    case key_graph_total:
+		      break;
 
-                      g->total = value_start;
+		    default:
 
-                      break;
-
-                    default:
-
-                      if (debug)
-                        fprintf (stderr, "Skipping unknown graph key '%s' at line %zu\n", graph_key, lineno);
-                    }
-                }
-            }
-          else if (!strcmp (graph_start, "use_node_name"))
+		      if (debug)
+			fprintf (stderr, "Skipping unknown graph key '%s' at line %zu\n", graph_key, lineno);
+		    }
+		}
+	    }
+          else if (!strcmp (graph_name, "use_node_name"))
             {
             }
-          else if (!strcmp (graph_start, "address"))
+          else if (!strcmp (graph_name, "address"))
             {
             }
           else if (debug)
-            fprintf (stderr, "Skipping unknown host key '%s' at line %zu\n", graph_start, lineno);
+            fprintf (stderr, "Skipping unknown host key '%s' at line %zu\n", graph_name, lineno);
         }
       else if (!strcmp (key_start, "tmpldir"))
         tmpldir = value_start;
@@ -629,7 +663,7 @@ process_graph (size_t graph_index)
   struct graph* g = &graphs[graph_index];
   size_t curve;
   struct timeval graph_start, graph_end;
-  char* path;
+  char *path;
 
   int curve_terminator;
 
@@ -664,6 +698,7 @@ process_graph (size_t graph_index)
 
       const struct graph* eff_g = g;
       const struct curve* eff_c = c;
+      int suffix;
 
       if (g->order)
         {
@@ -679,7 +714,7 @@ process_graph (size_t graph_index)
               strcpy(curve_name, ch);
 
               if (strchr (curve_name, ' '))
-                *strchr (curve_name, ' ' ) = 0;
+                *strchr (curve_name, ' ') = 0;
 
               if (strchr (curve_name, curve_terminator))
                 {
@@ -703,8 +738,6 @@ process_graph (size_t graph_index)
             }
         }
 
-      int suffix;
-
       if (!eff_c->type || !strcasecmp (eff_c->type, "gauge"))
         suffix = 'g';
       else if (!strcasecmp (eff_c->type, "derive"))
@@ -716,7 +749,7 @@ process_graph (size_t graph_index)
       else
         errx (EXIT_FAILURE, "Unknown curve type '%s'", eff_c->type);
 
-      if (-1 == asprintf (&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, eff_g->domain, eff_g->host, eff_g->name, eff_c->name, suffix))
+      if (-1 == asprintf (&c->path, "%s/%s/%s-%s-%s-%c.rrd", dbdir, eff_g->domain, eff_g->host, eff_g->name_rrd_path, eff_c->name, suffix))
         errx (EXIT_FAILURE, "asprintf failed while building RRD path: %s", strerror (errno));
 
       /* Data loaded by caller */
@@ -1016,7 +1049,7 @@ print_number (struct canvas* canvas, size_t x, size_t y, double val, double scal
   char buf[64];
 
   format_number (buf, val, scale_reference);
-  font_draw (canvas, x, y, buf, -1);
+  font_draw (canvas, x, y, buf, -1, 0x00);
 }
 
 void
@@ -1027,7 +1060,7 @@ print_numbers (struct canvas* canvas, size_t x, size_t y, double neg, double pos
   format_number (buf, neg, neg);
   strcat (buf, "/");
   format_number (strchr (buf, 0), pos, pos);
-  font_draw (canvas, x, y, buf, -1);
+  font_draw (canvas, x, y, buf, -1, 0x00);
 }
 
 int
@@ -1058,11 +1091,19 @@ find_curve_global (const struct graph** g, const struct curve** c, const char* g
 const struct curve*
 find_curve (const struct graph* g, const char* name)
 {
+  const char *basename, *ch;
   size_t i;
 
   for (i = 0; i < g->curve_count; ++i)
-    if (!strcmp (g->curves[i].name, name))
-      return &g->curves[i];
+    {
+      basename = g->curves[i].name;
+
+      while (0 != (ch = strchr (basename, '.')))
+	basename = ch + 1;
+
+      if (!strcmp (basename, name))
+	return &g->curves[i];
+    }
 
   return 0;
 }
@@ -1123,7 +1164,7 @@ draw_grid (struct graph* g, struct canvas* canvas,
 
       sprintf (buf, format, (j * step_size) * scale, suffix);
 
-      font_draw (canvas, graph_x - 5, graph_y + y + 7, buf, -1);
+      font_draw (canvas, graph_x - 5, graph_y + y + 7, buf, -1, 0x00);
 
       if (!j)
         continue;
@@ -1147,7 +1188,7 @@ draw_grid (struct graph* g, struct canvas* canvas,
               for (y = 0; y < graph_height; ++y)
                 draw_pixel_50 (canvas, graph_x + graph_width - j, y + graph_y, 0xaa8888);
 
-              font_draw (canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
+              font_draw (canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2, 0x00);
             }
           else if (ta->bar_interval && (prev_t - ta->bias) / ta->bar_interval != (t - ta->bias) / ta->bar_interval)
             {
@@ -1169,7 +1210,7 @@ draw_grid (struct graph* g, struct canvas* canvas,
               for (y = 0; y < graph_height; ++y)
                 draw_pixel_50 (canvas, graph_x + graph_width - j, y + graph_y, 0xaa8888);
 
-              font_draw (canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2);
+              font_draw (canvas, graph_x + graph_width - j, graph_y + graph_height + LINE_HEIGHT, buf, -2, 0x00);
             }
         }
 
@@ -1178,7 +1219,7 @@ draw_grid (struct graph* g, struct canvas* canvas,
     }
 
   strftime (buf, sizeof (buf), "Last update: %Y-%m-%d %H:%M:%S %Z", &tm_last_update);
-  font_draw (canvas, canvas->width - 5, canvas->height - 3, buf, -1);
+  font_draw (canvas, canvas->width - 5, canvas->height - 3, buf, -1, 0x00);
 }
 
 static void
@@ -1198,7 +1239,7 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
   else
     png_path_format = "%s/%s/%s/%s-%s.png";
 
-  if (-1 == asprintf (&png_path, png_path_format, htmldir, g->domain, g->host, g->name, suffix))
+  if (-1 == asprintf (&png_path, png_path_format, htmldir, g->domain, g->host, g->name_png_path, suffix))
     err (EX_OSERR, "asprintf failed");
 
   if (!nolazy && interval > 300 && 0 == stat (png_path, &png_stat))
@@ -1360,7 +1401,7 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
           c->work.negative = find_curve (g, c->negative);
 
           if (!c->work.negative)
-            errx (EXIT_FAILURE, "Negative '%s' for '%s' not found", c->name, c->negative);
+            errx (EXIT_FAILURE, "Negative '%s' for '%s' not found", c->negative, c->name);
         }
       else
         c->work.negative = 0;
@@ -1447,10 +1488,10 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
       buf[sizeof (buf) - 1] = 0;
 
       width = font_width (buf);
-      font_draw (&canvas, (canvas.width - width) / 2, 20, buf, 0);
+      font_draw (&canvas, (canvas.width - width) / 2, 20, buf, 0, 0x00);
     }
 
-  font_draw (&canvas, canvas.width - 15, 5, "Munin Hardcore/Morten Hustveit", 1);
+  font_draw (&canvas, canvas.width - 15, 5, "Munin Hardcore/Morten Hustveit", 1, 0xc0);
 
   if (g->vlabel)
     {
@@ -1481,7 +1522,7 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
       *o = 0;
 
       width = font_width (buf);
-      font_draw (&canvas, 14, graph_y + graph_height / 2 + width / 2, buf, 2);
+      font_draw (&canvas, 14, graph_y + graph_height / 2 + width / 2, buf, 2, 0x00);
     }
 
   size_t max_label_width = 0;
@@ -1602,7 +1643,7 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
                   draw_vline (&canvas,  9, y, y + 6, 0);
                   draw_vline (&canvas, 16, y, y + 6, 0);
 
-                  font_draw (&canvas, 22, y + 9, c->label ? c->label : c->name, 0);
+                  font_draw (&canvas, 22, y + 9, c->label ? c->label : c->name, 0, 0x00);
                 }
 
               ++graph_index;
@@ -1625,7 +1666,7 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
       if (label_width > max_label_width)
         max_label_width = label_width;
 
-      font_draw (&canvas, 22, y + 9, g->total, 0);
+      font_draw (&canvas, 22, y + 9, g->total, 0, 0x00);
     }
 
   y = graph_y + graph_height + 20;
@@ -1633,10 +1674,10 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
 
   size_t column_width = (canvas.width - x - 20) / 4;
 
-  font_draw (&canvas, x + column_width * 1, y + 9, has_negative ? "Cur (-/+)" : "Cur", -1);
-  font_draw (&canvas, x + column_width * 2, y + 9, has_negative ? "Min (-/+)" : "Min", -1);
-  font_draw (&canvas, x + column_width * 3, y + 9, has_negative ? "Avg (-/+)" : "Avg", -1);
-  font_draw (&canvas, x + column_width * 4, y + 9, has_negative ? "Max (-/+)" : "Max", -1);
+  font_draw (&canvas, x + column_width * 1, y + 9, has_negative ? "Cur (-/+)" : "Cur", -1, 0x00);
+  font_draw (&canvas, x + column_width * 2, y + 9, has_negative ? "Min (-/+)" : "Min", -1, 0x00);
+  font_draw (&canvas, x + column_width * 3, y + 9, has_negative ? "Avg (-/+)" : "Avg", -1, 0x00);
+  font_draw (&canvas, x + column_width * 4, y + 9, has_negative ? "Max (-/+)" : "Max", -1, 0x00);
   y += LINE_HEIGHT;
 
   double totals[4][2];

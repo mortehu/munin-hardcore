@@ -81,6 +81,9 @@ struct graph
   const char* host;
   const char* name;
 
+  char *name_png_path;
+  char *name_rrd_path;
+
   const char* title;
   const char* category;
   const char* info;

@@ -8,7 +8,8 @@ enum version
 {
   ver_unknown,
   ver_1_2,
-  ver_1_3
+  ver_1_3,
+  ver_1_4
 };
 
 extern enum version cur_version;

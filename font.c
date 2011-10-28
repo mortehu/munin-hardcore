@@ -112,7 +112,8 @@ font_width (const char* text)
 }
 
 void
-font_draw (struct canvas* canvas, size_t x, size_t y, const char* text, int direction)
+font_draw (struct canvas* canvas, size_t x, size_t y, const char* text, int direction,
+	   unsigned int blackness)
 {
   int result;
   FT_UInt idx;
@@ -181,9 +182,9 @@ font_draw (struct canvas* canvas, size_t x, size_t y, const char* text, int dire
                   unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];
                   unsigned int inv_alpha = 256 - alpha;
 
-                  canvas->data[i + 0] = (canvas->data[i + 0] * inv_alpha) >> 8;
-                  canvas->data[i + 1] = (canvas->data[i + 1] * inv_alpha) >> 8;
-                  canvas->data[i + 2] = (canvas->data[i + 2] * inv_alpha) >> 8;
+                  canvas->data[i + 0] = ((canvas->data[i + 0] * inv_alpha) >> 8) + ((blackness * alpha) >> 8);
+                  canvas->data[i + 1] = ((canvas->data[i + 1] * inv_alpha) >> 8) + ((blackness * alpha) >> 8);
+                  canvas->data[i + 2] = ((canvas->data[i + 2] * inv_alpha) >> 8) + ((blackness * alpha) >> 8);
                 }
             }
 
@@ -212,9 +213,9 @@ font_draw (struct canvas* canvas, size_t x, size_t y, const char* text, int dire
                   unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];
                   unsigned int inv_alpha = 256 - alpha;
 
-                  canvas->data[i + 0] = (canvas->data[i + 0] * inv_alpha) >> 8;
-                  canvas->data[i + 1] = (canvas->data[i + 1] * inv_alpha) >> 8;
-                  canvas->data[i + 2] = (canvas->data[i + 2] * inv_alpha) >> 8;
+                  canvas->data[i + 0] = ((canvas->data[i + 0] * inv_alpha) >> 8) + ((blackness * alpha) >> 8);
+                  canvas->data[i + 1] = ((canvas->data[i + 1] * inv_alpha) >> 8) + ((blackness * alpha) >> 8);
+                  canvas->data[i + 2] = ((canvas->data[i + 2] * inv_alpha) >> 8) + ((blackness * alpha) >> 8);
                 }
             }
 
@@ -243,9 +244,9 @@ font_draw (struct canvas* canvas, size_t x, size_t y, const char* text, int dire
                   unsigned int alpha = sbit->buffer[yy * sbit->pitch + xx];
                   unsigned int inv_alpha = 256 - alpha;
 
-                  canvas->data[i + 0] = (canvas->data[i + 0] * inv_alpha) >> 8;
-                  canvas->data[i + 1] = (canvas->data[i + 1] * inv_alpha) >> 8;
-                  canvas->data[i + 2] = (canvas->data[i + 2] * inv_alpha) >> 8;
+                  canvas->data[i + 0] = ((canvas->data[i + 0] * inv_alpha) >> 8) + ((blackness * alpha) >> 8);
+                  canvas->data[i + 1] = ((canvas->data[i + 1] * inv_alpha) >> 8) + ((blackness * alpha) >> 8);
+                  canvas->data[i + 2] = ((canvas->data[i + 2] * inv_alpha) >> 8) + ((blackness * alpha) >> 8);
                 }
             }
 
