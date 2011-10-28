@@ -1326,7 +1326,7 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
               memset (maxs, 0, sizeof (double) * graph_width);
               area = 1;
             }
-          else if (!strcasecmp (c->draw, "stack"))
+          else if (!strcasecmp (c->draw, "stack") || !strcasecmp (c->draw, "areastack"))
             area = 1;
         }
 
@@ -1629,7 +1629,7 @@ do_graph (struct graph* g, size_t interval, const char* suffix)
                       plot_area (&canvas, &iterator_average, maxs, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color);
                     }
                 }
-              else if (!strcasecmp (c->draw, "stack") && (pass == 0))
+              else if ((!strcasecmp (c->draw, "stack") || !strcasecmp (c->draw, "areastack")) && (pass == 0))
                 {
                   if (pass == 0)
                     plot_area (&canvas, &iterator_average, maxs, graph_x, graph_y, graph_width, graph_height, global_min, global_max, ds, color);
