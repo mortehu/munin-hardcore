@@ -9,9 +9,7 @@
 .deps
 .nfs*
 Makefile
-Makefile.in
 aclocal.m4
-configure
 core
 core.*
 graph-check
