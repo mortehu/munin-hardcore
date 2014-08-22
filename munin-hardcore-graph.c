@@ -243,13 +243,18 @@ main (int argc, char** argv)
     cur_version = ver_1_3;
   else if (ver_major == 1 && ver_minor == 4)
     cur_version = ver_1_4;
+  else if (ver_major == 2 && ver_minor == 0)
+    cur_version = ver_2_0;
 
   if (cur_version == ver_unknown)
-    errx (EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2 to 1.4", ver_major, ver_minor);
+    errx (EXIT_FAILURE, "Unsupported version %u.%u.  I only support 1.2, 1.3, 1.4, and 2.0", ver_major, ver_minor);
 
   in = line_end + 1;
 
   parse_datafile (in, datafile);
+
+  if (debug)
+    fprintf (stderr, "Found %zu graphs\n", graph_count);
 
   qsort (graphs, graph_count, sizeof (struct graph), graph_cmp);
 

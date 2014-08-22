@@ -221,26 +221,23 @@ curve_name_cmp (const void* plhs, const void* prhs)
 
 const char* key_strings[] =
 {
-  "cdef", "color", "colour", "critical",
-  "dbdir", "draw", "graph",
-  "graph_args", "graph_category", "graph_height", "graph_info",
-  "graph_order", "graph_period", "graph_scale", "graph_title",
-  "graph_total", "graph_vlabel", "graph_width", "htmldir",
-  "info", "label", "logdir", "max",
-  "min", "negative", "rundir", "skipdraw",
-  "tmpldir", "type", "warn", "warning"
+  "cdef", "color", "colour", "critical", "dbdir", "draw", "graph",
+  "graph_args", "graph_category", "graph_data_size", "graph_height",
+  "graph_info", "graph_order", "graph_period", "graph_scale", "graph_title",
+  "graph_total", "graph_vlabel", "graph_width", "htmldir", "info", "label",
+  "logdir", "max", "min", "negative", "rundir", "skipdraw", "tmpldir", "type",
+  "update_rate", "warn", "warning"
 };
 
 enum key
 {
-  key_cdef = 0, key_color, key_colour, key_critical,
-  key_dbdir, key_draw, key_graph,
-  key_graph_args, key_graph_category, key_graph_height, key_graph_info,
-  key_graph_order, key_graph_period, key_graph_scale, key_graph_title,
-  key_graph_total, key_graph_vlabel, key_graph_width, key_htmldir,
-  key_info, key_label, key_logdir, key_max,
-  key_min, key_negative, key_rundir, key_skipdraw,
-  key_tmpldir, key_type, key_warn, key_warning
+  key_cdef = 0, key_color, key_colour, key_critical, key_dbdir, key_draw,
+  key_graph, key_graph_args, key_graph_category, key_graph_data_size,
+  key_graph_height, key_graph_info, key_graph_order, key_graph_period,
+  key_graph_scale, key_graph_title, key_graph_total, key_graph_vlabel,
+  key_graph_width, key_htmldir, key_info, key_label, key_logdir, key_max,
+  key_min, key_negative, key_rundir, key_skipdraw, key_tmpldir, key_type,
+  key_update_rate, key_warn, key_warning
 };
 
 static int
@@ -295,10 +292,6 @@ parse_datafile (char* in, const char *pathname)
 
   switch (cur_version)
     {
-    case ver_1_4:
-
-      htmldir = "/var/cache/munin/www";
-
     case ver_1_2:
 
       host_terminator = ':';
@@ -310,6 +303,15 @@ parse_datafile (char* in, const char *pathname)
 
       host_terminator = ';';
       graph_terminator = ';';
+
+      break;
+
+    case ver_1_4:
+    case ver_2_0:
+
+      htmldir = "/var/cache/munin/www";
+      host_terminator = ':';
+      graph_terminator = '.';
 
       break;
 
@@ -465,6 +467,10 @@ parse_datafile (char* in, const char *pathname)
 
 		      break;
 
+                    case key_update_rate:
+
+                      break;
+
 		    default:
 
 		      if (debug)
@@ -596,6 +602,10 @@ parse_datafile (char* in, const char *pathname)
 
 		      break;
 
+                    case key_graph_data_size:
+
+                      break;
+
 		    default:
 
 		      if (debug)
@@ -667,7 +677,12 @@ process_graph (size_t graph_index)
 
   int curve_terminator;
 
-  curve_terminator = (cur_version < ver_1_3) ? '.' : ';';
+  if (cur_version < ver_1_3)
+    curve_terminator = '.';
+  else if (cur_version < ver_2_0)
+    curve_terminator = ';';
+  else
+    curve_terminator = ':';
 
   if (g->nograph)
       return;
