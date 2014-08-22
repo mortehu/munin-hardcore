@@ -14,10 +14,13 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <arpa/inet.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+#include <arpa/inet.h>
+#include <err.h>
+
 #include <png.h>
 
 int
@@ -44,14 +47,8 @@ write_png (const char *file_name, size_t width, size_t height, unsigned char* da
       return - 1;
     }
 
-  f = fopen (file_name, "wb");
-
-  if (!f)
-    {
-      png_destroy_write_struct (&png_ptr, &info_ptr);
-
-      return - 1;
-    }
+  if (!(f = fopen (file_name, "wb")))
+    err (EXIT_FAILURE, "Failed to open '%s' for writing", file_name);
 
   row_pointers = malloc (height * sizeof (png_bytep));
 
