@@ -11,7 +11,7 @@ munin_hardcore_node_SOURCES = node.c
 
 munin_hardcore_graph_SOURCES = munin-hardcore-graph.c
 munin_hardcore_graph_LDFLAGS = -lpng -lfreetype
-munin_hardcore_graph_LDADD = libmuningraph.a
+munin_hardcore_graph_LDADD = libmuningraph.a -lm
 
 graph_check_SOURCES = graph-check.c
 graph_check_LDFLAGS = -lpng -lfreetype
