@@ -1792,15 +1792,13 @@ double
 cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
 {
   struct cdef_run_args* args = vargs;
-  struct cdef_script* script;
+
+  int sp = 0;
+
+  struct cdef_script* script = args->script;
+  double* stack = alloca (sizeof (double) * script->max_stack_size);
+
   size_t i;
-
-  double* stack;
-  size_t sp = 0;
-
-  script = args->script;
-  stack = alloca (sizeof (double) * script->max_stack_size);
-
   for (i = 0; i < script->token_count; ++i)
     {
       switch (script->tokens[i].type)
@@ -1808,6 +1806,7 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
         case cdef_plus:
 
           --sp;
+          assert(sp > 0);
           stack[sp - 1] += stack[sp];
 
           break;
@@ -1815,6 +1814,7 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
         case cdef_minus:
 
           --sp;
+          assert(sp > 0);
           stack[sp - 1] += stack[sp];
 
           break;
@@ -1822,12 +1822,15 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
         case cdef_mul:
 
           --sp;
+          assert(sp > 0);
           stack[sp - 1] *= stack[sp];
 
           break;
 
         case cdef_div:
 
+          --sp;
+          assert(sp > 0);
           if(!isfinite(stack[sp - 1]) || !isfinite(stack[sp]))
             stack[sp - 1] = NAN;
           else
@@ -1838,6 +1841,7 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
         case cdef_mod:
 
           --sp;
+          assert(sp > 0);
           if(!isfinite(stack[sp - 1]) || !isfinite(stack[sp]))
             stack[sp - 1] = NAN;
           else
@@ -1848,6 +1852,7 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
         case cdef_IF:
 
           sp -= 2;
+          assert(sp > 0);
 
           if (stack[sp - 1])
             stack[sp - 1] = stack[sp];
@@ -1858,6 +1863,7 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
 
         case cdef_UN:
 
+          assert(sp > 0);
           if (isnan (stack[sp - 1]))
             stack[sp - 1] = 1;
           else
@@ -1868,11 +1874,11 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
         case cdef_TIME:
 
           return NAN;
-          break;
 
         case cdef_LE:
 
           --sp;
+          assert(sp > 0);
           stack[sp - 1] = (stack[sp - 1] <= stack[sp]);
 
           break;
@@ -1880,12 +1886,14 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
         case cdef_GE:
 
           --sp;
+          assert(sp > 0);
           stack[sp - 1] = (stack[sp - 1] >= stack[sp]);
 
           break;
 
         case cdef_constant:
 
+          assert(sp < script->max_stack_size);
           stack[sp++] = script->tokens[i].v.constant;
 
           break;
@@ -1898,7 +1906,7 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
 
               ref_c = script->tokens[i].v.curve;
 
-              /* Avoid calling self-referncing CDEFs recursively */
+              /* Avoid calling self-referencing CDEFs recursively */
               ref_iterator
                 = (ref_c == args->c) ? &ref_c->work.iterator[args->name]
                 : &ref_c->work.eff_iterator[args->name];
@@ -1922,6 +1930,7 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
                   return NAN;
                 }
 
+              assert(sp < script->max_stack_size);
               stack[sp++] = rrd_iterator_peek_index(ref_iterator, index);
             }
 
@@ -1929,7 +1938,7 @@ cdef_eval (const struct rrd_iterator* iterator, size_t index, void* vargs)
         }
     }
 
-  if (sp)
+  if (sp > 0)
     return stack[sp - 1];
 
   return NAN;
