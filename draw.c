@@ -247,7 +247,7 @@ draw_rect (struct canvas* canvas, size_t x, size_t y, size_t width, size_t heigh
   unsigned char r, g, b;
   size_t yy, xx;
 
-  if (x > canvas->width || y > canvas->height)
+  if (x >= canvas->width || y >= canvas->height)
     return;
 
   if (x + width > canvas->width)
@@ -279,7 +279,7 @@ draw_pixel (struct canvas* canvas, size_t x, size_t y, uint32_t color)
 {
   size_t i = (y * canvas->width + x) * 3;
 
-  if (x > canvas->width || y > canvas->height)
+  if (x >= canvas->width || y >= canvas->height)
     return;
 
   canvas->data[i + 0] = color >> 16;
